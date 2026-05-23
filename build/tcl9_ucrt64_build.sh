@@ -10,9 +10,8 @@
 # Tklib 0.9
 #   https://www.tcl-lang.org/software/tklib/
 #
-# 构建完成后需要手动将
-# /opt/tcl9/bin/ 加入到系统的 PATH 中，在启动的 .bashrc 中加入
-# export PATH=${PATH}:/opt/tcl9/bin/
+# Tcl最强的JSON扩展 rl_json
+#   https://github.com/RubyLane/rl_json
 
 BASE_DIR=$(pwd)
 TCL_VERSION="tcl9.0.3"
@@ -31,8 +30,8 @@ build_tcl9 ()
     cd "${TCL_VERSION}/"
     cd win/
     ./configure --prefix="$PREFIX" --enable-64bit
-    mingw32-make
-    mingw32-make install
+    make
+    make install
 
     cd "$BASE_DIR"
     mkdir -p "${PREFIX}/lib/tcl9.0"
@@ -49,8 +48,8 @@ build_tk9 ()
                 --with-tcl=../../${TCL_VERSION}/win \
                 --enable-64bit \
                 --enable-threads
-    mingw32-make
-    mingw32-make install
+    make
+    make install
 }
 
 install_tcllib ()
@@ -67,8 +66,8 @@ install_tcllib ()
     # 这一步会调用它内部的 sak.tcl（Tcllib 的专属管家），能正确处理路径
     # 暂时先不用这个，因为 critcl 对于 Tcl9.0 的适配还不够稳定
     # 虽然 critcl 把库编译成C语言，速度更快，但是还是等下吧
-    # mingw32-make install
-    mingw32-make install-libraries
+    # make install
+    make install-libraries
 }
 
 install_tklib ()
@@ -76,13 +75,63 @@ install_tklib ()
     cd "$BASE_DIR"
     tar xzvf tklib-0.9.tgz
     cd tklib-0.9/
-    
+
     # 同样通过 configure 指定路径
     ./configure --prefix="$PREFIX" \
                 --with-tclsh="$PREFIX/bin/tclsh90.exe"
-    
+
     # 因为 Tklib 绝大多数是纯 Tcl/Tk 代码，直接装 library 即可
-    mingw32-make install-libraries
+    make install-libraries
+}
+
+install_rl_json ()
+{
+    # 1. 进入你的源码存放目录并解压
+    cd "$BASE_DIR"
+    tar xzvf rl_json-v0.17.4.tar.gz
+
+    # 2. 核心：必须进入解压后的【根目录】，千万不要进 win/ 目录
+    cd rl_json-v0.17.4/
+
+    # 3. 配置环境
+    ./configure --prefix="$PREFIX" \
+                --with-tcl=../${TCL_VERSION}/win \
+                --enable-64bit \
+                --enable-threads
+
+    # 配置完成后需要給代码打上 ucrt64专用的补丁才行
+    #   teabase/names.c 开头加上下面这样的宏定义
+    #   #ifdef _WIN32
+    #   #define srandom(x) srand(x)
+    #   #define random()   rand()
+    #   #endif
+    # 并且编译依赖 pandoc
+    sed -i '1e cat <<EOF
+#ifdef _WIN32
+#define srandom(x) srand(x)
+#define random()   rand()
+#endif
+    EOF' teabase/names.c
+
+    # 4. 编译与安装
+    # 由于 ucrt64 环境中没有 pandoc ,所以我们的安装会失败
+    make
+
+    # 我们手动拷贝库和引导文件
+    mkdir -p /opt/tcl9/lib/rl_json0.16
+    cp -f ./pkgIndex.tcl /opt/tcl9/lib/rl_json0.16/
+    cp -f ./tcl9rl_json016.dll /opt/tcl9/lib/rl_json0.16/
+
+    # :TODO: 可以不用上面那种手动安装方法，下次编译试试下面这样安装
+    #   在不安装文档的情况下应该是会成功的
+    # make install-libraries
+}
+
+mklink_ucrt64 ()
+{
+    # 编译完成后建立软连接
+    ln -sf /opt/tcl9/bin/tclsh90.exe /opt/tcl9/bin/tclsh9
+    ln -sf /opt/tcl9/bin/wish90.exe /opt/tcl9/bin/wish9
 }
 
 # windows 系统最好是把 tk 装上
@@ -91,5 +140,7 @@ clean &&
 build_tcl9 &&
 install_tcllib &&
 build_tk9 &&
-install_tklib
+install_tklib &&
+install_rl_json &&
+mklink_ucrt64
 

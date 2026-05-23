@@ -1,0 +1,225 @@
+#!/usr/bin/env tclsh9
+
+# 引入官方标准的测试大组件
+# package require tcltest 2.5
+package require tcltest
+namespace import ::tcltest::*
+
+# 跨层级把我们刚刚收工的 tutils 工具箱的绝对路径加载进来
+set current_dir [file dirname [file normalize [info script]]]
+lappend ::auto_path [file dirname $current_dir]
+package require tutils 1.0
+
+test exec_s-1.1 {测试常规命令输出与退出码} -body {
+    # 模拟执行 echo 命令
+    set res [sys exec_s echo "hell o-tcl9"]
+    
+    # 获取字典里的值用于断言
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    # 我们期望它返回一个列表：文本为 hello-tcl9，退出码为 0
+    list $output $code
+} -result {{hell o-tcl9} 0}
+
+test exec_s-1.2 {测试命令执行成功但逻辑未匹配（退出码为1）} -setup {
+    # 创建临时测试文件
+    set temp_file [makeFile "line 1\nline 2" "test_grep.log"]
+} -body {
+    # 故意搜索一个绝对不存在的关键字 "NOTHING"
+    set res [sys exec_s grep "NOTHING" $temp_file]
+    
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    list $output $code
+} -cleanup {
+    # 测试完了自动把临时文件扬了，保持环境干净
+    removeFile "test_grep.log"
+} -result {{} 1}
+
+test exec_s-1.3 {测试执行非法命令时触发 Tcl 运行时报错} -body {
+    # 故意调用一个全宇宙都不存在的瞎编命令
+    if {[catch {sys exec_s nonexistent_command_abc} err_msg]} {
+        # 如果成功拦截到错误，我们看报错文本是不是符合预期
+        string match "*unable to start external command*" $err_msg
+    } else {
+        set "没有拦截到异常，测试失败"
+    }
+} -result {1}
+
+test exec_s-1.4 {测试命令参数包含空格和特殊符号} -body {
+    # 模拟执行 echo 命令，参数里有空格和特殊符号
+    set res [sys exec_s echo "hello world @#$%^&*()"]
+    
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    list $output $code
+} -result {{hello world @#$%^&*()} 0}
+
+test exec_s-1.5 {测试命令参数包含空格和特殊符号（非echo）} -body {
+    # 使用 printf 打印参数，避免 echo 的实现差异
+    set res [sys exec_s printf "%s" "hello world @#$%^&*()"]
+    
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    list $output $code
+} -result {{hello world @#$%^&*()} 0}
+
+test exec_s-1.6 {测试文件名包含空格和特殊符号} -setup {
+    # 创建一个临时文件，名字里有空格和符号
+    set special_file "test file @#$%.log"
+    set fh [open $special_file w]
+    puts $fh "special content"
+    close $fh
+} -body {
+    # 用 cat 打印文件内容
+    set res [sys exec_s cat $special_file]
+    
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    list $output $code
+} -cleanup {
+    file delete "test file @#$%.log"
+} -result {{special content} 0}
+
+
+test exec_s-1.7 {测试命令输出很大时能正常处理} -setup {
+    # 创建一个临时大文件，内容重复很多行
+    set big_file [makeFile [string repeat "line 1 line 1 line 1\n" 5000000] "big_output.log"]
+} -body {
+    # 用 cat 输出大文件
+    set res [sys exec_s cat $big_file]
+    
+    set output [dict get $res output]
+    set code   [dict get $res code]
+    
+    # 验证输出的行数是否正确
+    list [llength [split $output "\n"]] $code
+} -cleanup {
+    removeFile "big_output.log"
+} -result {5000000 0}
+
+test exec_s-1.8 {测试不合流标准错误时的行为} -body {
+    # 故意执行一个会报错的命令，比如 ls 一个不存在的目录
+    set res [sys exec_s ls /not_exist_dir]
+
+    set output [dict get $res output]
+    set code   [dict get $res code]
+
+    # 我们期望 stdout 是空，退出码非0
+    list $output $code
+} -result {{} 2}
+
+test exec_m-1.8.1 {测试合流标准错误时的行为} -body {
+    # 故意执行一个会报错的命令，并使用合流执行器 exec_m
+    set res [sys exec_m ls /not_exist_dir]
+
+    set output [dict get $res output]
+    set code   [dict get $res code]
+
+    # 验证点1：因为合流了，stdout 绝对不能是空，应该包含错误关键字（如 "No such" 或 "cannot access"）
+    set has_err_msg [string match {*not_exist_dir*} $output]
+
+    # 验证点2：操作系统退出码应该是非0（ls 找不到目录在 Linux/MSYS2 下通常返回 2）
+    # 我们期望结果为：1（代表成功捕获到错误文本） 2（真实的非0退出码）
+    list $has_err_msg $code
+} -result {1 2}
+
+test exec_s-1.9 {测试命令退出码为9的情况} -body {
+    # 用 shell 模拟一个直接退出的命令
+    set res [sys exec_s sh -c "exit 9"]
+
+    set output [dict get $res output]
+    set code   [dict get $res code]
+
+    # 我们期望输出为空，退出码为9
+    list $output $code
+} -result {{} 9}
+
+test date_prt-1.1 {测试 date_prt 默认格式输出} -body {
+    set current_time [sys date_prt]
+    
+    # 验证是否符合默认的年-月-日 时:分:秒 正则格式
+    # 例如：2026-05-19 14:30:15
+    set is_match [regexp {^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$} $current_time]
+    
+    return $is_match
+} -result {1}
+
+test date_prt-1.2 {测试 date_prt 自定义格式输出} -body {
+    # 传入自定义格式，常用于日志文件名：20260519_143015
+    set custom_time [sys date_prt "%Y%m%d_%H%M%S"]
+    
+    # 验证是否符合 8位数字 + 下划线 + 6位数字 的正则格式
+    set is_match [regexp {^\d{8}_\d{6}$} $custom_time]
+    
+    return $is_match
+} -result {1}
+
+test date_prt-1.3 {测试 date_prt 毫秒级标准格式输出} -body {
+    # 传入带自定义 %Milli 占位符的格式
+    set ms_time [sys date_prt "%Y-%m-%d %H:%M:%S.%Milli"]
+    
+    # 验证是否符合 年-月-日 时:分:秒.3位毫秒数字 的正则格式
+    # 例如：2026-05-20 09:05:30.425
+    set is_match [regexp {^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$} $ms_time]
+    
+    return $is_match
+} -result {1}
+
+test date_prt-1.4 {测试 date_prt 毫秒级文件名安全格式输出} -body {
+    # 传入适合做备份或临时大文件的全数字下划线毫秒格式
+    set custom_ms_time [sys date_prt "%Y%m%d_%H%M%S_%Milli"]
+    
+    # 验证是否符合 8位数字 + 下划线 + 6位数字 + 下划线 + 3位毫秒 的正则格式
+    # 例如：20260520_090530_425
+    set is_match [regexp {^\d{8}_\d{6}_\d{3}$} $custom_ms_time]
+    
+    return $is_match
+} -result {1}
+
+test get_type-1.1 {测试变量内部人格变身：刚生成的文本推断为字典 -> 经历列表操作后原地转正为列表} -body {
+    # 步骤 1：构造一个纯文本字符串，它的长相刚好符合偶数个键值对的特征
+    set dynamic_data "key1 value1 key2 value2"
+    
+    set res_first [::sys::get_type $dynamic_data]
+    
+    set dummy_len [llength $dynamic_data]
+    
+    set res_second [::sys::get_type $dynamic_data]
+    
+    # 组合两次的战利品返回
+    list $res_first $res_second
+} -result {string list}
+
+# 打印字典中某个节点的地址数据
+
+test get_type-1.2 {测试变量内部人格变身：显式生成的列表推断为列表 -> 经历字典操作后原地裂变为字典} -body {
+    # 步骤 1：利用官方正统 list 命令构造一个变量。
+    # 此时它在 Tcl 9 底层物理内存中，100% 拥有纯正的、带 C 语言数组指针的 list 内部表示！
+    set dynamic_list [list "key1" "value1" "key2" "value2"]
+    
+    # 首次调用：get_type 顺着 C 指针精准抓取，判定其为 "list"
+    set res_first [::sys::get_type $dynamic_list]
+    
+    # 步骤 2：核心裂变点！我们对这个变量强行进行一次【字典操作】（例如查一下它所有的 keys）
+    # 这会无情地通知 Tcl 9 内核：“把原先的 list 结构体砸碎释放，重新在原地编译出一棵 C 语言哈希树（dict）！”
+    set dummy_keys [dict keys $dynamic_list]
+    
+    # 第二次调用：此时变量底层已经彻底换成了 dict 灵魂，get_type 必须精准抓出 "dict"
+    set res_second [::sys::get_type $dynamic_list]
+    
+    # 组合战利品返回
+    list $res_first $res_second
+} -result {list dict}
+
+
+# ====================================================================
+# 自动化测试大盘收尾：统计红绿灯通过率
+# ====================================================================
+cleanupTests
+

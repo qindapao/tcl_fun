@@ -1,0 +1,61 @@
+#!/usr/bin/env -S expect -f
+
+# 获取参数或设置默认值
+set host [lindex $argv 0]
+set timeout [lindex $argv 1]
+set username [lindex $argv 2]
+set password [lindex $argv 3]
+set cmd [lrange $argv 4 end]
+
+# 设置默认值
+if {![info exists timeout] || $timeout == ""} { set timeout 60 }
+if {![info exists username] || $username == ""} { set username xx }
+if {![info exists password] || $password == ""} { set password yy }
+
+# 1. 始终禁用 spawn 默认日志，防止在后台执行时污染终端或交织混杂
+log_user 0
+
+# 构建命令
+set command [list ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${username}@${host}]
+
+# 将命令和参数合并
+lappend command {*}$cmd
+
+# 启动 SSH 并运行命令
+spawn -noecho {*}$command
+
+# 2. 关键升级：定义一个内存变量，用来无视免密或密码模式，动态收集全量远程输出
+set remote_output ""
+
+expect {
+    timeout {
+        send_user "expect timeout\n"
+        exit 3
+    }
+    "(yes/no*)?" {
+        send "yes\n"
+        exp_continue
+    }
+    "*assword:" {
+        # 匹配到密码提示则发送密码，随后利用 exp_continue 继续往下走，不提前切断流
+        send "$password\n"
+        exp_continue
+    }
+    -re {(.+)} {
+        # 核心魔法：无论是免密直接登录，还是输完密码登录，只要有数据流动
+        # 通通通过正则捞到内存变量里。由于使用了 exp_continue，它会一直捞到 EOF 为止
+        append remote_output $expect_out(1,string)
+        exp_continue
+    }
+    eof {}
+}
+
+# 3. 任务彻底结束。此时 remote_output 存的是世界上最干净的远程回显
+# 我们用 puts -nonewline 吐给本地核心执行器，绝对不留一丁点多余的换行或杂质
+puts -nonewline $remote_output
+
+# 获取退出码
+set result [wait]
+set exit_code [lindex $result 3]
+exit $exit_code
+

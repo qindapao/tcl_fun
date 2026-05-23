@@ -1,0 +1,333 @@
+#!/usr/bin/env tclsh9
+
+package require tcltest
+package require json
+
+namespace import ::tcltest::*
+
+set current_dir [file dirname [file normalize [info script]]]
+lappend ::auto_path [file dirname $current_dir]
+package require tutils 1.0
+
+# 在标准的当前目录下建立专门的测试日志文件
+set test_log_file [file join [pwd] "test.log"]
+
+# ======================================================================
+# 1. 基础日志系统生命周期测试
+# ======================================================================
+
+test log-init-1.1 {测试日志初始化} -body {
+    # 统一使用标准的指定级别进行初始化
+    log init $test_log_file INFO
+    set fp [dict get $::log::db file_handle]
+    expr {$fp ne ""}
+} -result 1
+
+test log-close-1.2 {测试日志关闭} -body {
+    log close_file
+    set fp [dict get $::log::db file_handle]
+    expr {$fp eq ""}
+} -result 1
+
+
+# ======================================================================
+# 2. 原生数据结构无脑美化打印测试 (dict / list)
+# ======================================================================
+
+test log-pdict-1.3 {测试 dict 转纯文本排版} -setup {
+    log init $test_log_file INFO
+} -body {
+    set d [dict create key1 val1 key2 val2]
+    set json [log pdict $d]
+    log info "\n$json"
+    string match {*"key1" : "val1"*} $json
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.4 {测试 list 转纯文本排版} -setup {
+    log init $test_log_file INFO
+} -body {
+    set l [list "a" "b" "c"]
+    set json [log pdict $l]
+    log info "\n$json"
+    string match {*"a",*} $json
+} -cleanup {
+    log close_file
+} -result 1
+
+
+# ======================================================================
+# 3. 复杂、极端嵌套结构测试
+# ======================================================================
+
+test log-pdict-1.5 {测试复杂嵌套：字典里嵌套列表} -setup {
+    log init $test_log_file INFO
+} -body {
+    set d [dict create \
+        project "EDA_Automation" \
+        tags [list "debug" "core"] \
+    ]
+    set result [log pdict $d]
+    log info "\n$result"
+    
+    expr {
+        [string match {*"project" : "EDA_Automation",*} $result] && \
+        [string match {*"tags" : \[*} $result] && \
+        [string match {*"debug",*} $result] && \
+        [string match {*"core"*} $result]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.6 {测试复杂嵌套：列表中嵌套字典} -setup {
+    log init $test_log_file INFO
+} -body {
+    set l [list \
+        [dict create name "Tom" age 20] \
+        [dict create name "Jack" age 25] \
+    ]
+    set result [log pdict $l]
+    log info "\n$result"
+    
+    expr {
+        [string match {*"name" : "Tom",*} $result] && \
+        [string match {*"age" : "20"*} $result] && \
+        [string match {*"name" : "Jack",*} $result]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.7 {测试极端嵌套：多层深度树状套娃} -setup {
+    log init $test_log_file DEBUG
+} -body {
+    set tree {
+        root {
+            layer1 {
+                layer2 {
+                    leaf "final_value"
+                }
+            }
+        }
+    }
+    set result [log pdict $tree]
+    log debug "\n$result"
+    puts $tree
+    
+    expr {
+        [string match {*root*} $result] && \
+        [string match {*layer1*} $result] && \
+        [string match {*layer2*} $result] && \
+        [string match {*\\\"final_value\\\"*} $result]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+
+# ======================================================================
+# 4. 专属调用链与业务行号拦截测试（防污染隔离版）
+# ======================================================================
+
+# 局部定义测试套娃函数
+proc ::func_layer_C {msg} { log error $msg }
+proc ::func_layer_B {msg} { ::func_layer_C $msg }
+proc ::func_layer_A {msg} { ::func_layer_B $msg }
+
+test log-trace-1.8 {测试过程调用跟踪栈与动态行号标签（针对 WARN/ERROR）} -setup {
+    # 【核心隔离】为堆栈测试开辟一个绝对干净的专属临时日志文件，彻底断绝句柄冲突
+    set trace_file [file join [pwd] "trace_test.log"]
+    log init $trace_file INFO
+} -body {
+    # 调用 A 触发套娃报错，ERROR 此时 100% 纯净地写入 trace_test.log
+    ::func_layer_A "触发恶意深层报错"
+    
+    # 测完立刻优雅关闭，强制操作系统安全落盘
+    log close_file
+    
+    # 用只读模式把这个专属文件一口气读出来
+    set fp [open $trace_file r]
+    set log_content [read $fp]
+    close $fp
+    
+    # 执行硬核的三合一断言
+    expr {
+        [string match {*在函数 ::func_layer_A*} $log_content] && \
+        ![string match {*在函数 _write*} $log_content] && \
+        [string match {*\[ERROR\]\[log.test:*\]-->*} $log_content]
+    }
+} -cleanup {
+    # 测完把临时残留文件擦除干净，深藏功与名
+    catch {file delete -force $trace_file}
+    # 彻底关闭可能未断开的残留句柄
+    log close_file
+} -result 1
+
+test log-trace-1.9 {测试极端无文件背景下的匿名调用（验证并拦截隐藏空行）} -setup {
+    set trace_file [file join [pwd] "trace_empty_line_test.log"]
+    log init $trace_file INFO
+} -body {
+    # 【恶意制造案发现场】
+    # 用 apply 执行一个匿名闭包，在纯内存里触发报错
+    # 此时 ::info frame 抓到的 file 和 line 全是兜底默认值
+    apply {{msg} { log error $msg }} "匿名炸弹"
+    
+    log close_file
+    
+    # 读出刚刚写入的文件内容
+    set fp [open $trace_file r]
+    set log_content [read $fp]
+    close $fp
+    
+    catch {file delete -force $trace_file}
+
+    # 【硬核验证断言】
+    # 1. 正常的日志记录必须存在
+    # 2. 文件内容里绝对不能包含连续两个换行符 "\n\n"（这意味着存在没有文字的绝对空行！）
+    expr {
+        [string match {*匿名炸弹*} $log_content] && \
+        ![string match {*\n\n*} [string trim $log_content]]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-trace-1.10 {测试极端无文件背景下的匿名调用（验证并拦截隐藏空行）} -setup {
+    set trace_file [file join [pwd] "trace_empty_line_test.log"]
+    log init $trace_file INFO
+} -body {
+    # 【恶意制造案发现场】
+    # 用 apply 执行一个匿名闭包，在纯内存里触发报错
+    # 此时 ::info frame 抓到的 file 和 line 全是兜底默认值
+    apply {{msg} { log error $msg }} "匿名炸弹"
+    
+    log close_file
+    
+    # 读出刚刚写入的文件内容
+    set fp [open $trace_file r]
+    set log_content [read $fp]
+    close $fp
+    
+    catch {file delete -force $trace_file}
+
+    # 【硬核验证断言】
+    # 1. 正常的日志记录必须存在
+    # 2. 文件内容里绝对不能包含连续两个换行符 "\n\n"（这意味着存在没有文字的绝对空行！）
+    expr {
+        [string match {*匿名炸弹*} $log_content] && \
+        ![string match {*\n\n*} [string trim $log_content]]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+# ======================================================================
+# 5. 符号引用嵌套与拓扑数据结构测试
+# ======================================================================
+
+test log-pdict-1.11 {测试符号引用：顶层键的值指向另一个键名，验证数据链的完整解析 (A -> B -> A)} -setup {
+    set loop_file1 [file join [pwd] "loop_real_top.log"]
+    log init $loop_file1 INFO
+} -body {
+    # 1. 恶意制造符合你描述的符号闭环场景：
+    # 键为 root_node，它的值叫 "cluster_master"
+    # 而另一个子键 self_link 的值，刚好又指向了顶层的键名 "root_node"！
+    # 1. 惡意製造極限加料字典，全面壓榨防火牆與獨立命名空間 str::escape 淨化器
+    # 【高能注意】：poison_ghost1 和 poison_ghost2 注入了真正的不可見二進位幽靈字元
+    set top_dict1 [dict create \
+        root_node1    "cluster_master" \
+        self_link1    "包含\"双引号\"和\\反斜杠\\" \
+        self_link2    "帶有\t制表符的文字" \
+        self_link3    "含有\{花括號\}和\[中括號\]的危險字串" \
+        self_link4    "    " \
+        self_link5    "" \
+        self_link6    "中文及特殊符號~!@#$%^&*()_+" \
+        self_link7    "中文" \
+        self_link8    "繁體\[中文\]\n\"測試\"[binary format c 0]\t結[binary format c 17]束[binary format c 2][binary format c 8]哈哈哈" \
+        self_link9    [list] \
+        self_link10   [dict create] \
+        poison_bell   "物理響鈴符投毒\a" \
+        poison_page   "物理翻頁符投毒\f" \
+        poison_back   "物理退格符投毒\b" \
+        poison_ret    "物理回車符投毒\r" \
+        poison_ghost1 [binary format c 1] \
+        poison_ghost2 [binary format c 27] \
+        tcl_inject1   "注入惡意代碼:\$env(PATH)" \
+        "tcl_inject2\n"   "注入執行指令:\[exit\]" \
+        tcl_inject3   "注入複雜語法:\${some_ghost_var}" \
+        scalar_int    [expr {42}] \
+        scalar_float  [expr {3.1415926}] \
+        scalar_bool   [expr {1 < 2}] \
+        blob_stream   [binary format a4 "BLOB"] \
+    ]
+    set top_dict2 [dict create \
+        root_node2 "cluster_slave" \
+        self_link2 "" \
+    ]
+
+    dict set top_dict2 self_link2 $top_dict1
+    dict set top_dict1 self_link1 $top_dict2
+
+    # 2. 调用美化打印
+    log error "\n[log pdict $top_dict1]"
+    log error "\n[log pdict $top_dict2]"
+    
+    log close_file
+    
+    # 3. 读出刚刚写入文件的真实文本
+    set fp [open $loop_file1 r]
+    set log_content [read $fp]
+    close $fp
+
+    # 4. 执行硬核断言：验证这种符号依赖关系没有发生任何丢失
+    expr {
+        [string match {*"root_node2" : "cluster_slave*} $log_content] && \
+        [string match {*"self_link2" : \{*} $log_content]
+    }
+} -cleanup {
+    catch {file delete -force $loop_file1}
+    log close_file
+} -result 1
+
+
+test log-pdict-1.12 {测试符号引用：多层深度符号链的垂直缩进规范性 (A -> B -> C)} -setup {
+    set norm_file [file join [pwd] "norm_nest.log"]
+    log init $norm_file INFO
+} -body {
+    # 构造一个 3 层深度的合法 EDA 符号映射表
+    set normal_tree {
+        design_top {
+            instance_A {
+                ref_module "AND_GATE_X1"
+                next_cell "instance_B"
+            }
+        }
+    }
+    set result [log pdict $normal_tree]
+    log error "\n$result"
+    
+    log close_file
+    
+    set fp [open $norm_file r]
+    set log_content [read $fp]
+    close $fp
+
+    # 验证多层嵌套符号链下的排版完备性
+    expr {
+        [string match {*design_top*} $log_content] && \
+        [string match {*ref_module*} $log_content] && \
+        [string match {*next_cell*} $log_content]
+    }
+} -cleanup {
+    catch {file delete -force $norm_file}
+    log close_file
+} -result 1
+
+
+
+# 全局大清洗
+catch {file delete -force $test_log_file}
+cleanupTests
+

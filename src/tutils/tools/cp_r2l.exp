@@ -1,0 +1,53 @@
+#!/usr/bin/env -S expect -f
+
+# 获取参数或设置默认值
+set host [lindex $argv 0]
+set src_path [lindex $argv 1]
+set dest_path [lindex $argv 2]
+set timeout [lindex $argv 3]
+set username [lindex $argv 4]
+set password [lindex $argv 5]
+
+# 设置默认值
+if {![info exists timeout] || $timeout == ""} { set timeout 60 }
+if {![info exists username] || $username == ""} { set username xx }
+if {![info exists password] || $password == ""} { set password yy }
+
+# 1. 始终关闭默认控制台日志，保持返回字典的绝对纯净，拒绝进度条乱码
+log_user 0
+
+# 2. 终极简化并埋坑：
+# 加上 "-q" 闷死进度条。同时直接写死 "-r"，因为 scp 拷贝单文件时带 -r 完全合法，
+# 这样直接降维打击，彻底绕开了在本地用 file isdirectory 探测远程路径一定会发生的误判大坑！
+set command [list scp -q -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${username}@${host}:${src_path} $dest_path]
+
+# 启动安全逆向传输
+spawn -noecho {*}$command
+
+# 3. 完美的扁平化状态机：100% 兼容免密与密码双模，彻底免疫大文件超时强杀风险
+expect {
+    timeout {
+        send_user "expect timeout\n"
+        exit 3
+    }
+    "(yes/no*)?" {
+        send "yes\n"
+        exp_continue
+    }
+    "*assword:" {
+        # 匹配到密码则发送密码，随后利用 exp_continue 继续向下匹配 eof
+        send "$password\n"
+        exp_continue
+    }
+    -re {(.+)} {
+        # 核心防御：在免密登录场景下，数据流动时不断刷新计时器，防止假死挂起
+        exp_continue
+    }
+    eof {}
+}
+
+# 4. 精准斩获操作系统的真实退出码
+set result [wait]
+set exit_code [lindex $result 3]
+exit $exit_code
+

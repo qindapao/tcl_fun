@@ -145,6 +145,37 @@ install_tklib ()
     make install-libraries
 }
 
+install_rl_json ()
+{
+    cd "$BASE_DIR"
+    if [ -d "rl_json-v0.17.4" ]; then rm -rf rl_json-v0.17.4; fi
+    tar xzvf rl_json-v0.17.4.tar.gz
+    cd rl_json-v0.17.4/
+
+    # 因为交叉编译下检测必错，所以直接用 sed 无脑改为 0
+    sed -i 's/GETBYTES_SHIM=1/GETBYTES_SHIM=0/g' configure
+    sed -i 's/have_getbytes=no/have_getbytes=yes/g' configure
+
+    # 传入 --host 参数和交叉编译器，拦截本机的 gcc
+    # 同时使用已经编译好的 ARM64 的 tclConfig.sh ($PREFIX/lib/tclConfig.sh)
+    ./configure --prefix="$PREFIX" \
+                --with-tcl="$PREFIX/lib" \
+                --host=aarch64-linux-gnu \
+                --enable-64bit \
+                --enable-threads \
+                CC="$CROSS_CC" \
+                CFLAGS="-O2 -fPIC"
+
+    # 利用编好的 Host 工具 (TOOL_TCL_BIN) 来跑可能需要的脚本
+    # 强制让 make 阶段调用 x86 的 tclsh，而编译代码用交叉编译器
+    # 加上 "binaries" 参数，让 make 只编译代码，不碰任何文档！
+    # 因为我们的环境上没有 pandoc 工具
+    make CC="$CROSS_CC" TCLSH_PROG="$TOOL_TCL_BIN" -j$(nproc) binaries
+
+    # 4. 规范化安装（只安装二进制和库，免除 pandoc 文档编译带来的次生灾害）
+    make install-binaries
+}
+
 clean ()
 {
     cd "$BASE_DIR"
@@ -176,6 +207,7 @@ build_tcl9_x86 &&
 clean &&
 build_tcl9 &&
 install_tcllib &&
+install_rl_json &&
 # 因为我们是命令行编程，不需要安装TK
 # build_tk9 &&
 # install_tklib &&

@@ -1,0 +1,52 @@
+#!/usr/bin/env -S expect -f
+
+set host [lindex $argv 0]
+set src_path [lindex $argv 1]
+set dest_path [lindex $argv 2]
+set timeout [lindex $argv 3]
+set username [lindex $argv 4]
+set password [lindex $argv 5]
+
+if {![info exists timeout] || $timeout == ""} { set timeout 60 }
+if {![info exists username] || $username == ""} { set username xx }
+if {![info exists password] || $password == ""} { set password yy }
+
+# 1. 关闭默认输出，保持 API 纯净
+log_user 0
+
+# 2. 组装带 -q 纯净模式的 scp 命令
+set scp_opts [list -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null]
+
+if {[file isdirectory $src_path]} {
+    set command [list scp -r {*}$scp_opts $src_path $username@$host:$dest_path]
+} else {
+    set command [list scp {*}$scp_opts $src_path $username@$host:$dest_path]
+}
+
+spawn -noecho {*}$command
+
+# 3. 扁平化状态机，完美通杀密码与免密双模，抗大文件超时
+expect {
+    timeout {
+        send_user "expect timeout\n"
+        exit 3
+    }
+    "(yes/no*)?" {
+        send "yes\n"
+        exp_continue
+    }
+    "*assword:" {
+        send "$password\n"
+        exp_continue
+    }
+    -re {(.+)} {
+        exp_continue
+    }
+    eof {}
+}
+
+# 4. 精准斩获退出码
+set result [wait]
+set exit_code [lindex $result 3]
+exit $exit_code
+
