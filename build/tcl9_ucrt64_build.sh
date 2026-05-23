@@ -106,12 +106,12 @@ install_rl_json ()
     #   #define random()   rand()
     #   #endif
     # 并且编译依赖 pandoc
-    sed -i '1e cat <<EOF
-#ifdef _WIN32
-#define srandom(x) srand(x)
-#define random()   rand()
+    sed -i '1i\
+#ifdef _WIN32\
+#define srandom(x) srand(x)\
+#define random()   rand()\
 #endif
-    EOF' teabase/names.c
+' teabase/names.c
 
     # 4. 编译与安装
     # 由于 ucrt64 环境中没有 pandoc ,所以我们的安装会失败
@@ -122,9 +122,9 @@ install_rl_json ()
     cp -f ./pkgIndex.tcl /opt/tcl9/lib/rl_json0.16/
     cp -f ./tcl9rl_json016.dll /opt/tcl9/lib/rl_json0.16/
 
-    # :TODO: 可以不用上面那种手动安装方法，下次编译试试下面这样安装
-    #   在不安装文档的情况下应该是会成功的
-    # make install-libraries
+    # :TODO: 目前发现只有下面这样的安装是不对的，不清楚原因
+    # 下面的只会安装头文件不会安装dll和tcl文件
+    make install-libraries
 }
 
 mklink_ucrt64 ()
