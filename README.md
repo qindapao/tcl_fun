@@ -64,3 +64,17 @@ tclsh9 log.test
 
 `src/tutils/tools` 目录下的工具需要提前部署到可执行目录中。
 
+## 常用的命令
+
+- 在项目的根目录下统计所有的文件列表。
+
+```bash
+find "$(pwd)" -name ".git" -prune -o -type f -print
+```
+
+- 在项目的根目录下统计所有的文件列表，并且转换成`Windows`下的目录格式，并且自动在前后加上双引号和逗号。
+
+```bash
+find "$(pwd)" -name ".git" -prune -o -type f -print | sed -E 's|^\/([a-zA-Z])(.*)|"\U\1\E:\2",|; s|/|\\\\|g'
+```
+

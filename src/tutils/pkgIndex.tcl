@@ -12,12 +12,20 @@
 #
 #   sys.tcl         str.tcl
 #      |             |
-#      '------.------'
-#             v
-#           log.tcl
+#      .------.------'
+#      |      |
+#      v      v
+#   ip.tcl  log.tcl
 #
+
+# 只有在纯 Linux 生产环境下才锁死 UTF-8；在 Windows/MSYS2 下保持终端默认
+if {$::tcl_platform(platform) eq "unix"} {
+    catch {fconfigure stdout -encoding utf-8}
+    catch {fconfigure stderr -encoding utf-8}
+}
+
 package ifneeded tutils 1.0 [list apply {{dir} {
-    foreach file {str.tcl sys.tcl log.tcl} {
+    foreach file {str.tcl sys.tcl log.tcl ip.tcl} {
         source [file join $dir $file]
     }
 }} $dir]

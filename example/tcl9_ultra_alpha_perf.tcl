@@ -1,4 +1,4 @@
-#!/usr/bin/env wish9.0
+#!/usr/bin/env wish9
 package require Tk
 
 # 1. 初始化界面

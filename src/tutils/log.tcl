@@ -36,7 +36,8 @@ namespace eval ::log {
 
         # 【终极防坑：彻底关闭文件缓冲机制】
         # 将 -buffering 设为 none。这样 Tcl 只要一执行 puts，底层数据会不需要任何等待，1微秒内直接物理落盘！
-        fconfigure $fp -buffering none -translation lf
+        # 强行把落盘的格式锁死为 utf-8
+        fconfigure $fp -buffering none -translation lf -encoding utf-8
         dict set db file_handle $fp
         dict set db log_level   [string toupper $level]
         info "Log system initialization successful | level: [string toupper $level]"

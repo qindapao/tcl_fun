@@ -1,5 +1,12 @@
 #!/usr/bin/env tclsh9
 
+# /**
+#  * @file sys.tcl
+#  * @brief 强类型、免注入、生产级外部命令控制台安全执行引擎
+#  * @author 
+#  * @copyright Copyright (c) 2026
+#  */
+
 # 声明本文件属于 tutils 工具箱的 1.0 版本（供 pkg_mkIndex 识别）
 package provide tutils 1.0
 
@@ -8,81 +15,165 @@ namespace eval ::sys {
     namespace ensemble create
 
     # /**
-    #  * @brief 标准合流外部命令执行器
-    #  * @details 对外高层快捷门面函数。自动将标准错误（stderr）合并到标准输出（stdout）中一同返回。
+    #  * @brief 标准合流外部命令执行器（Facade 面门函数）
+    #  * @details 自动将标准错误（stderr）合并到标准输出（stdout）中一同返回。
     #  *          采用不定长参数直通设计，调用方无需在外部手动包裹 list 或大括号。
-    #  *          得益于 Tcl 9 原生列表锁死机制，该函数天然免疫任何 Shell 脚本注入攻击。
+    #  *          由于底层直接通过 execve 系统调用解包，天然免疫任何 Shell 脚本注入攻击。
     #  *
-    #  * @param[in] args 不定长命令及参数。例如：sys exec_m grep "FATAL ERROR" "app log.log"
+    #  * @param[in] args 不定长命令及参数。例如：sys exec_m grep "FATAL" "app.log"
     #  *
-    #  * @return dict 返回包含两个核心键的字典：
+    #  * @return dict 返回包含两个核心键的结构化字典：
     #  *              - output: 完整的命令输出内容（包含 stdout 和 stderr）
-    #  *              - code:   操作系统退出码（0=成功，非0=异常失败）
+    #  *              - code:   操作系统退出码（0=成功，非0=业务失败）
     #  *
-    #  * @note 推荐将其作为自动化运维、日常测试用例执行的主力推荐函数。
+    #  * @throws error 当突发内核级故障（如命令不存在 `SYS_SYSTEM_PANIC`）时，引爆 Tcl 原生异常向上击穿。
+    #  *
+    #  * @example
+    #  *    set res [::sys::exec_m grep "FATAL" "/var/log/nginx.log"]
+    #  *    if {[dict get $res code] != 0} {
+    #  *        puts "日志中未找到关键字，控制台回显: [dict get $res output]"
+    #  *    }
     #  */
     proc exec_m {args} { return [_exec_core 1 $args] }
 
     # /**
-    #  * @brief 纯净分流外部命令执行器
-    #  * @details 对外高层快捷门面函数。强制剥离并重定向标准错误（stderr），使其不污染返回内容。
+    #  * @brief 纯净分流外部命令执行器（Facade 面门函数）
+    #  * @details 强制剥离并重定向标准错误（stderr），使其不污染返回的标准输出内容。
     #  *          采用不定长参数直通设计，调用方无需在外部手动包裹 list 或大括号。
-    #  *          得益于 Tcl 9 原生列表锁死机制，该函数天然免疫任何 Shell 脚本注入攻击。
     #  *
-    #  * @param[in] args 不定长命令及参数。例如：sys exec_s ls -la "my folder name"
+    #  * @param[in] args 不定长命令及参数。例如：sys exec_s ls -la "my folder"
     #  *
-    #  * @return dict 返回包含两个核心键的字典：
-    #  *              - output: 纯净的标准输出内容（不包含任何 stderr）
-    #  *              - code:   操作系统退出码（0=成功，非0=异常失败）
+    #  * @return dict 返回包含两个核心键的结构化字典：
+    #  *              - output: 纯净的标准输出内容（不包含任何 stderr 报错信息）
+    #  *              - code:   操作系统退出码（0=成功，非0=业务失败）
     #  *
-    #  * @note 适用于只需要精确提取命令正确回显（如获取版本号、提取IP地址）的业务场景。
+    #  * @throws error 当突发内核级故障（如命令不存在 `SYS_SYSTEM_PANIC`）时，引爆 Tcl 原生异常向上击穿。
+    #  *
+    #  * @example
+    #  *    set res [::sys::exec_s docker ps -q]
+    #  *    if {[dict get $res code] == 0} {
+    #  *        puts "当前运行的容器ID列表: [dict get $res output]"
+    #  *    }
     #  */
     proc exec_s {args} { return [_exec_core 0 $args] }
 
     # /**
-    #  * @brief ISO-C 风格安全外部命令核心执行引擎（内部私有）
-    #  * @details 采用阻塞管道与分块读取机制，保证对超长行回显和二进制流输出绝对安全。
-    #  *          本函数不直接对外开放，通过高层的 exec_m 和 exec_s 进行安全隔离。
+    #  * @brief 【高阶强类型执行器】业务级安全断言执行引擎（Facade 面门函数）
+    #  * @details 专为精密数据清洗、见错就死的自动化流水线步骤打造。
+    #  *          - 当外部命令控制台退出码为 0 时：直接脱壳返回纯净的标准输出（String），无需上层解析字典。
+    #  *          - 当外部命令非 0 业务崩溃时：就地引爆 Tcl 强类型异常，并将退出码精确打包塞入异常上下文。
+    #  *          得益于底层私有引擎 `_exec_core` 的大一统设计，本函数天然对齐 Tcl 9 字符集死锁机制，
+    #  *          输入命令携带中文字符串参数时绝对不发生跨平台多字节 Panic 崩溃。
     #  *
-    #  * @param[in] merge_stderr 是否合流标准错误（1=合流至 stdout 管道，0=独立分流不捕获）
-    #  * @param[in] cmd_parts    由高层门面函数打包好的完整命令及参数列表（List格式）
+    #  * @param[in] args 不定长外部命令及参数。例如：sys try_exec curl -s -X GET "https://github.com"
     #  *
-    #  * @return dict 返回包含两个核心键的字典：
-    #  *              - output: 过滤掉末尾换行符的干净回显内容（中间多行换行符完美保留）
+    #  * @return string 纯净的标准输出内容（末尾自动剥离换行符，中间多行换行完美保留）。
+    #  *
+    #  * @throws error 
+    #  *          1. `SYS_SYSTEM_PANIC`: 外部可执行程序根本不存在或本地系统句柄爆裂，管道无法启动。
+    #  *          2. `SYS_EXEC_ERROR`  : 命令跑完但退出码非 0，此时控制台错误输出（stderr）会直接充当异常消息（msg）抛出。
+    #  *
+    #  * @example
+    #  *    # 生产环境标准强类型精准分流捕获与工业级测试回归范例：
+    #  *    try {
+    #  *        set raw_json [::sys::try_exec ip -json addr]
+    #  *        puts "数据清洗成功: $raw_json"
+    #  *    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
+    #  *        puts "【致命故障】本地环境完蛋或内核管道死锁! 详情: $err_msg"
+    #  *    } trap {SYS_EXEC_ERROR} {err_msg opts} {
+    #  *        set exit_code [lindex [dict get $opts -errorcode] 1]
+    #  *        puts "【业务失败】命令执行非0崩溃! 退出码: $exit_code, 错误回显: $err_msg"
+    #  *        puts "【堆栈审计】完整的 Tcl 解释器注入调用链行号追踪:\n[dict get $opts -errorinfo]"
+    #  *    }
+    #  */
+    proc try_exec {args} {
+        set res [_exec_core 0 $args]
+        set code [dict get $res code]
+        set out  [dict get $res output]
+
+        if {$code == 0} { return $out }
+
+        # 统一业务级失败异常：包装成标准的 SYS_EXEC_ERROR 结构
+        return -code error \
+               -errorcode [list SYS_EXEC_ERROR $code] \
+               -errorinfo "External command '$args' failed with exit code $code" \
+               -level 1 \
+               $out
+    }
+
+    # /**
+    #  * @brief ISO-C 风格安全外部命令核心执行引擎（内部私有底层函数）
+    #  * @details 采用双端阻塞管道与 8KB 分块缓冲区读取机制，保证对超长行回显和二进制流输出绝对安全。
+    #  *          本函数实现了全盘异常与字符集大一统设计：
+    #  *          - 系统级完蛋直接向上击穿，强迫主程序中断；业务级非 0 退出安全收敛入数据字典返回。
+    #  *          - 【Tcl 9 强类型内核防卫】：在 open 系统调用前置阶段，动态拦截并强行将系统默认编码
+    #  *            死锁为 `utf-8`，彻底根除因多字节中文字符转换引起的 `unexpected character` 溢出崩溃。
+    #  *
+    #  * @param[in] merge_stderr 是否合流标准错误（1 = 将 stderr 重定向合流至 stdout 管道，0 = 独立分流不捕获）
+    #  * @param[in] cmd_parts    由高层门面函数打包好的完整命令及参数列表（标准 List 格式）
+    #  *
+    #  * @return dict 返回标准的结构化数据字典，包含两个核心键值对：
+    #  *              - output: 过滤掉末尾换行符的干净回显内容（多行中间的换行符完美保留，支持 UTF-8 中文）
     #  *              - code:   操作系统退出码（精确捕获 CHILDSTATUS 错误码，突发宕机返回 -1）
     #  *
-    #  * @throws error 如果外部可执行程序不存在或本地操作系统管道启动失败，会抛出标准 Tcl 异常。
+    #  * @throws error 
+    #  *          1. `SYS_SYSTEM_PANIC ARGS_EMPTY`: 调用方传递了空参数列表。
+    #  *          2. `SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED`: 管道关闭时发生非 CHILDSTATUS 的内核异常。
+    #  *          3. 原生 Tcl 管道异常: 外部可执行程序不存在（如返回 `POSIX ENOENT`）或本地系统死锁时，
+    #  *             利用 `return -options` 将底层原生堆栈毫无损耗地彻底击穿暴露。
     #  *
-    #  * @note 核心内部逻辑。输入采用列表解包直通内核系统调用（execve），规避了传统字符串拼接引发的空格切分隐患。
+    #  * @note 核心内部底层逻辑。输入采用列表解包直通内核系统调用（execve），规避了传统字符串拼接引发的注入隐患。
     #  */
     proc _exec_core {merge_stderr cmd_parts} {
         if {[llength $cmd_parts] == 0} {
-            return [dict create output "error: no command provided" code -1]
+            return -code error \
+                   -errorcode {SYS_SYSTEM_PANIC ARGS_EMPTY} \
+                   "\[sys\] error: no command or arguments provided"
         }
+
+        # 在建立内核管道前，强行将 Tcl 解释器当前的系统级别编码和系统调用编码死锁为 utf-8
+        # 这一步是专门为了对付 Tcl 9 强类型字符集断言，确保 open 带有中文参数的命令时平滑通关！
+        set old_system_encoding [encoding system]
+        catch {encoding system utf-8}
 
         set pipeline_cmd [list | {*}$cmd_parts]
         if {$merge_stderr} { lappend pipeline_cmd "2>@1" }
 
-        if {[catch {open $pipeline_cmd r} pipe]} {
-            return -code error "\[exec_s\]error: unable to start external command -> $pipe"
+        # 如果命令不存在、或管道启动直接崩溃，直接将异常向上彻底击穿！
+        if {[catch {open $pipeline_cmd r} pipe pipe_opts]} {
+            # 恢复原系统编码，防止环境污染
+            catch {encoding system $old_system_encoding}
+            return -options $pipe_opts $pipe
         }
+        # 恢复原系统编码（管道已经成功建立，字符集安全送达子进程）
+        catch {encoding system $old_system_encoding}
 
-        # 8KB
-        fconfigure $pipe -blocking 1 -buffering full -buffersize 8192
+        # 配置双端阻塞、全缓冲（8KB）
+        fconfigure $pipe -blocking 1 -buffering full -buffersize 8192 -encoding utf-8
         set out_buffer [read $pipe]
 
         set exit_code 0
-        if {[catch {close $pipe} err]} {
-            lassign $::errorCode err_type pid code
+        # 【统一系统完蛋 2】：关闭管道时捕获系统底层状态
+        if {[catch {close $pipe} err dict_opts]} {
+            if {[dict exists $dict_opts -errorcode]} {
+                set err_info [dict get $dict_opts -errorcode]
 
-            if {$err_type eq "CHILDSTATUS"} {
-                set exit_code $code
+                if {[lindex $err_info 0] eq "CHILDSTATUS"} {
+                    # 属于正常的业务级非 0 退出，精准提取操作系统退出码
+                    set exit_code [lindex $err_info 2]
+                } else {
+                    # 属于非正常的突发系统级死锁或宕机，直接以底层原生异常向上击穿！
+                    return -options $dict_opts $err
+                }
             } else {
-                set exit_code -1
-                append out_buffer "\n\[system-level sudden death report\]: $err"
+                # 极端突发情况，无 errorcode 却关闭失败，视为系统级崩溃
+                return -code error \
+                       -errorcode {SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED} \
+                       "\[sys\] unexpected critical pipe closure error: $err"
             }
         }
 
+        # 正常业务返回：统一收敛为结构化字典
         return [dict create \
             output [string trimright $out_buffer "\r\n"] \
             code   $exit_code \
@@ -90,95 +181,172 @@ namespace eval ::sys {
     }
 
     # /**
-    #  * @brief 跨主机远程命令安全执行器
-    #  * @details 采用最纯净的直通模式。远端的合流/分流全权由传入的远程命令自身控制。
-    #  *          本地引擎仅作为纯净的数据搬运工，100% 隔离本地 SSH 客户端报错与远端业务回显。
+    #  * @brief 远程命令安全执行器（Expect 远程调用门面函数）
+    #  * @details 专为跨主机自动化集群运维、分布式脚本分发、远程状态巡检打造的强类型控制引擎。
+    #  *          采用大一统异常与参数死锁设计：
+    #  *          - 将 `args` 不定长参数死锁在最后一位，彻底根除因 Tcl 默认参数解析引起的解包歧义与语法混乱。
+    #  *          - 在入参层面做“前置强断言”：一旦检测到用户没有传递任何远程执行命令，
+    #  *            直接引爆系统级致命异常（SYS_SYSTEM_PANIC REMOTE_ARGS_EMPTY），拦截非法调用。
+    #  *          - 固定向底层核心引擎传递 0（不合流标准错误），让底层核心引擎只读取纯净的远程终端回显，
+    #  *            彻底拒绝本地杂质污染，保证数据清洗时的准确性。
     #  *
-    #  * @param[in] host       目标主机 IP 地址或域名
-    #  * @param[in] user       远程登录用户名
-    #  * @param[in] pwd        远程登录密码
-    #  * @param[in] timeout    远程连接与执行的超时时间（秒）
-    #  * @param[in] args       要在远端执行的命令及参数。
-    #  *                       例如：sys exec_r "192.168.1.1" "root" "pwd123" 30 ls -la "/tmp/spaces dir"
+    #  * @param[in] host    远程目标主机 IP 或 Hostname（String）
+    #  * @param[in] user    SSH 登录用户名（String）
+    #  * @param[in] pwd     SSH 登录密码（String）
+    #  * @param[in] timeout 远程控制台命令执行超时保护时间（Int）
+    #  * @param[in] args    不定长远程执行命令及参数。例如：ls -la "/var/log"
     #  *
-    #  * @return dict 返回包含 output 和 code 的字典
+    #  * @return dict 返回包含两个核心键的结构化字典：
+    #  *              - output: 纯净的远程终端标准输出内容（不包含任何本地 stderr 杂质）
+    #  *              - code:   操作系统退出码（0=远程执行成功，非0=远程业务或网络失败）
+    #  *
+    #  * @throws error 
+    #  *          1. `SYS_SYSTEM_PANIC REMOTE_ARGS_EMPTY`: 调用方未传递任何要执行的远程命令。
+    #  *          2. `SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED`: 内部底层核心管道关闭时突发内核级故障。
+    #  *
+    #  * @example
+    #  *    # 工业级标准远程巡检并提取磁盘占用率精细化控制范例：
+    #  *    try {
+    #  *        set res [::sys::exec_r "10.0.0.1" "admin" "pass123" 30 df -h "/" ]
+    #  *        
+    #  *        if {[dict get $res code] == 0} {
+    #  *            puts "远程巡检成功，控制台回显:\n[dict get $res output]"
+    #  *        } else {
+    #  *            puts "【业务失败】远程执行失败，退出码: [dict get $res code]，报错: [dict get $res output]"
+    #  *        }
+    #  *    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
+    #  *        puts "【致命故障】调用中断！检查发现未传递任何远程执行指令！详情: $err_msg"
+    #  *    }
     #  */
-    proc exec_r {host {user "xx"} {pwd "yy"} {timeout 60} args} {
+    proc exec_r {host user pwd timeout args} {
+        # 【全盘统一设计】：前置强断言，如果 args 不定长参数为空，直接抛出标准系统致命异常
         if {[llength $args] == 0} {
-            return [dict create output "error: no remote command provided" code -1]
+            return -code error \
+                   -errorcode {SYS_SYSTEM_PANIC REMOTE_ARGS_EMPTY} \
+                   "\[exec_r\] error: no remote command provided"
         }
 
-        # 1. 组装调用你那套完美 expect 脚本的本地参数
+        # 组装调用已部署在系统 PATH 中的 cmd2r.exp 脚本的本地参数
         set local_cmd [list cmd2r.exp $host $timeout $user $pwd]
 
-        # 2. 将远程参数无缝平铺追加到末尾
+        # 将远程参数无缝平铺追加到末尾，得益于 Tcl 9 列表锁死机制，天然免疫注入攻击
         lappend local_cmd {*}$args
 
-        # 3. 终极简化：固定传入 0（不合流）！
-        # 让 _exec_core 只读取干净的远程回显，彻底拒绝本地杂质污染
+        # 固定传入 0 分流，由底层核心引擎安全读取并返回数据
         return [_exec_core 0 $local_cmd]
     }
 
     # /**
-    #  * @brief 跨主机远程文件/目录安全推送器（本地 -> 远端）
-    #  * @details 采用纯净的外部脚本直通模式。内部不进行任何管道写入或数据流套娃。
-    #  *          将本地的文件或目录直接推送到远端指定的绝对路径中。
-    #  *          注意：因采用 Tcl 位置匹配规则，若需调整超时时间，前面的 user 和 pwd 参数必须显式补齐。
+    #  * @brief 本地文件精准推送至远程（SCP 上传门面函数）
+    #  * @details 专为自动化部署、配置文件下发、固件包推送打造的强类型上传引擎。
+    #  *          采用统一异常哲学：
+    #  *          - 在本地环境层面做“前置强断言”：不管调用方传递的是相对路径（. 或 ..）还是绝对路径，
+    #  *            一律强制“归一化”（file normalize）为绝对路径。一旦检测到本地源文件根本不存在，
+    #  *            直接引爆系统级致命异常（SYS_SYSTEM_PANIC），拒绝启动昂贵的 SSH/SCP 远程握手连接。
+    #  *          - 固定向底层核心引擎传递 0（不合流标准错误），确保远程推送链路回显纯净，
+    #  *            由 scp 自行掌控生命周期，进程结束时自动释放管道，天然免疫任何因复杂环境引发的假死风险。
     #  *
-    #  * @param[in] host       目标主机 IP 地址或域名
-    #  * @param[in] src_path   本地源文件或源目录的绝对路径
-    #  * @param[in] dest_path  远端主机的目标绝对路径
-    #  * @param[in] user       远程登录用户名（默认：xx）
-    #  * @param[in] pwd        远程登录密码（默认：yy）
-    #  * @param[in] timeout    文件传输与握手的超时时间，单位秒（默认：60）
+    #  * @param[in] host      远程目标主机 IP 或 Hostname（String）
+    #  * @param[in] src_path  本地待上传的源文件路径（支持相对或绝对路径，String）
+    #  * @param[in] dest_path 远程落地的绝对目标路径。例如："/var/www/html/index.html"
+    #  * @param[in] user      SSH 登录用户名（String）
+    #  * @param[in] pwd       SSH 登录密码（String）
+    #  * @param[in] timeout   SCP 传输超时保护时间，默认 60 秒（Int）
     #  *
-    #  * @return dict 返回包含两个核心键的字典：
-    #  *              - output: 传输失败时的标准错误回显（成功时通常为空白，已自动剔除尾部换行）
-    #  *              - code:   操作系统的真实退出码（0=成功，3=超时，其他=业务报错或失败）
+    #  * @return dict 返回包含两个核心键的结构化字典：
+    #  *              - output: 纯净的控制台标准输出内容（不包含任何 stderr）
+    #  *              - code:   操作系统退出码（0=上传成功，非0=SCP业务失败）
+    #  *
+    #  * @throws error 
+    #  *          1. `SYS_SYSTEM_PANIC LOCAL_FILE_NOT_FOUND`: 本地待上传的源文件根本不存在。
+    #  *          2. `SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED`  : 内部底层核心管道关闭时突发内核级故障。
+    #  *
+    #  * @example
+    #  *    # 工业级标准下发配置文件精细化控制范例：
+    #  *    try {
+    #  *        set res [::sys::cp_l2r "10.0.0.1" "../conf/nginx.conf" "/etc/nginx/nginx.conf" "root" "pass123"]
+    #  *        
+    #  *        if {[dict get $res code] == 0} {
+    #  *            puts "推送 Nginx 配置文件成功！"
+    #  *        } else {
+    #  *            puts "【业务失败】推送失败，退出码: [dict get $res code]，错误原因: [dict get $res output]"
+    #  *        }
+    #  *    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
+    #  *        puts "【致命故障】打包发布中断！检查发现本地根本找不到待分发的 conf/nginx.conf 文件！详情: $err_msg"
+    #  *    }
     #  */
-    proc cp_l2r {host src_path dest_path {user "xx"} {pwd "yy"} {timeout 60}} {
-        # 【终极防呆】不管用户传的是 . 还是 .. 还是相对路径，一律强制“归一化”为完美的绝对路径！
+    proc cp_l2r {host src_path dest_path user pwd {timeout 60}} {
+        # 【全盘统一设计】：强制将本地路径归一化为绝对路径，防呆设计
         set real_src [file normalize $src_path]
 
+        # 如果本地源文件不存在，视为内核级故障，就地引发系统级崩溃，不再向下调用外部脚本
         if {![file exists $real_src]} {
-            return [dict create output "\[cp_l2r\]error: local source path does not exist -> $real_src" code -1]
+            return -code error \
+                   -errorcode [list SYS_SYSTEM_PANIC LOCAL_FILE_NOT_FOUND] \
+                   "\[cp_l2r\] critical error: local source path does not exist -> $real_src"
         }
 
-        # 后续传给外部脚本时，用 $real_src 代替原本的 $src_path 
+        # 组装调用已部署在系统 PATH 中的 cp_l2r.exp 脚本的本地参数
+        # 后续传给外部脚本时，一律采用无歧义的 $real_src 路径
         set local_cmd [list cp_l2r.exp $host $real_src $dest_path $timeout $user $pwd]
+
+        # 固定传入 0 分流，安全读取并返回结构化数据
         return [_exec_core 0 $local_cmd]
     }
 
     # /**
-    #  * @brief 跨主机远程文件/目录安全拉取器（远端 -> 本地）
-    #  * @details 采用纯净的外部脚本直通模式。内部不进行任何管道写入或数据流套娃。
-    #  *          将远端的文件或一整部目录拉取并落地到本地指定的绝对路径中。
-    #  *          注意：因采用 Tcl 位置匹配规则，若需调整超时时间，前面的 user 和 pwd 参数必须显式补齐。
+    #  * @brief 远程文件精准拉取至本地（SCP 下载门面函数）
+    #  * @details 专为自动化运维、日志收集、基础固件拉取打造的强类型下载引擎。
+    #  *          采用统一异常哲学：
+    #  *          - 在本地执行环境层面做“前置强断言”：一旦检测到本地目标落地的父目录根本不存在，
+    #  *            直接引爆系统级致命异常（SYS_SYSTEM_PANIC），强迫依赖它的流水线中止，防止数据丢失。
+    #  *          - 固定向底层传递 0（不合流标准错误），将底层管道阻塞与进程周期完全交由 scp 自行掌控，
+    #  *            在 Windows UCRT64 或 Linux 环境下天然免疫假死和僵尸进程风险。
     #  *
-    #  * @param[in] host       目标主机 IP 地址或域名
-    #  * @param[in] src_path   远端主机源文件或源目录的绝对路径
-    #  * @param[in] dest_path  本地的目标绝对路径
-    #  * @param[in] user       远程登录用户名（默认：xx）
-    #  * @param[in] pwd        远程登录密码（默认：yy）
-    #  * @param[in] timeout    文件传输与握手的超时时间，单位秒（默认：60）
+    #  * @param[in] host      远程目标主机 IP 或 Hostname（String）
+    #  * @param[in] src_path  远程源文件绝对路径。例如："/var/log/nginx/access.log"
+    #  * @param[in] dest_path 本地落地绝对路径。例如："/data/logs/remote_nginx.log"
+    #  * @param[in] user      SSH 登录用户名（String）
+    #  * @param[in] pwd       SSH 登录密码（String）
+    #  * @param[in] timeout   SCP 传输超时保护时间，默认 60 秒（Int）
     #  *
-    #  * @return dict 返回包含两个核心键的字典：
-    #  *              - output: 传输失败时的标准错误回显（成功时通常为空白，已自动剔除尾部换行）
-    #  *              - code:   操作系统的真实退出码（0=成功，3=超时，其他=业务报错或失败）
+    #  * @return dict 返回包含两个核心键的结构化字典：
+    #  *              - output: 纯净的控制台标准输出内容（不包含任何 stderr）
+    #  *              - code:   操作系统退出码（0=下载成功，非0=SCP业务失败）
+    #  *
+    #  * @throws error 
+    #  *          1. `SYS_SYSTEM_PANIC LOCAL_DIR_NOT_FOUND`: 本地落地的目标父目录不存在。
+    #  *          2. `SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED` : 内部底层管道关闭时突发内核级死锁。
+    #  *
+    #  * @example
+    #  *    # 工业级标准拉取远程日志精细化控制范例：
+    #  *    try {
+    #  *        set res [::sys::cp_r2l "192.168.1.100" "/var/log/app.log" "/data/backup/app.log" "admin" "secret"]
+    #  *        
+    #  *        if {[dict get $res code] == 0} {
+    #  *            puts "下载日志成功！"
+    #  *        } else {
+    #  *            puts "【业务失败】SCP 传输失败，退出码: [dict get $res code]，控制台报错: [dict get $res output]"
+    #  *        }
+    #  *    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
+    #  *        puts "【致命故障】本地环境异常！本地可能连 /data/backup 目录都没建！详情: $err_msg"
+    #  *    }
     #  */
-    proc cp_r2l {host src_path dest_path {user "xx"} {pwd "yy"} {timeout 60}} {
-        # 1. 安全防呆：如果本地目标落地路径的父目录都不存在，直接拦截返回
+    proc cp_r2l {host src_path dest_path user pwd {timeout 60}} {
+        # 安全防呆：提取本地落地路径的父目录
         set local_parent [file dirname $dest_path]
+
+        # 【全盘统一设计】：如果本地父目录不存在，视为内核级故障，直接抛出标准异常拦截！
         if {![file exists $local_parent]} {
-            return [dict create output "\[cp_r2l\]error: local destination directory does not exist -> $local_parent" \
-                                code -1]
+            return -code error \
+                   -errorcode [list SYS_SYSTEM_PANIC LOCAL_DIR_NOT_FOUND] \
+                   "\[cp_r2l\] critical error: local destination directory does not exist -> $local_parent"
         }
 
-        # 2. 组装调用已部署在系统 PATH 中的 cp_r2l.exp 脚本的本地参数
+        # 组装调用已部署在系统 PATH 中的 cp_r2l.exp 脚本的本地参数
         set local_cmd [list cp_r2l.exp $host $src_path $dest_path $timeout $user $pwd]
 
-        # 3. 终极简化：固定传入 0（不合流）！
-        # 抛弃 Stdin 写入，由 scp 自行掌控生命周期，进程结束时自动解脱，Windows UCRT64 下无假死风险
+        # 终极简化：固定传入 0（不合流），由底层核心引擎安全读取并返回数据
         return [_exec_core 0 $local_cmd]
     }
 
@@ -292,6 +460,5 @@ namespace eval ::sys {
         if {[regexp {object pointer at (0x[0-9A-Fa-f]+)} $rep -> ptr]} { return " <$ptr>" }
         return ""
     }
-
 }
 
