@@ -88,10 +88,12 @@ install_rl_json ()
 {
     # 1. 进入你的源码存放目录并解压
     cd "$BASE_DIR"
-    tar xzvf rl_json-v0.17.4.tar.gz
+    local rl_json_file_name
+    rl_json_file_name=$(ls -l | grep "rl_json" | grep "tar.gz" | awk '{print $NF}' | awk -F ".tar.gz" '{print $1}')
+    tar xzvf "${rl_json_file_name}.tar.gz"
 
     # 2. 核心：必须进入解压后的【根目录】，千万不要进 win/ 目录
-    cd rl_json-v0.17.4/
+    cd "${rl_json_file_name}/"
 
     # 3. 配置环境
     ./configure --prefix="$PREFIX" \
@@ -118,9 +120,9 @@ install_rl_json ()
     make
 
     # 我们手动拷贝库和引导文件
-    mkdir -p /opt/tcl9/lib/rl_json0.16
-    cp -f ./pkgIndex.tcl /opt/tcl9/lib/rl_json0.16/
-    cp -f ./tcl9rl_json016.dll /opt/tcl9/lib/rl_json0.16/
+    mkdir -p /opt/tcl9/lib/rl_json
+    cp -f ./pkgIndex.tcl /opt/tcl9/lib/rl_json/
+    cp -f ./tcl9rl_json*.dll /opt/tcl9/lib/rl_json/
 
     # :TODO: 目前发现只有下面这样的安装是不对的，不清楚原因
     # 下面的只会安装头文件不会安装dll和tcl文件
