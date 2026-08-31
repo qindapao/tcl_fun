@@ -9,14 +9,12 @@ namespace eval ::str {
     # 创建 Ensemble 集体门面，将 ::str::escape 简化为极具现代感的 [str escape]
     namespace ensemble create
 
-    # /**
-    #  * @brief 符合 RFC 8259 工业标准的字串安全净化与转义器 (str escape)
-    #  * @details 优先通过 string map 处理高频常用字符，随后利用 Tcl 9 原生正则引擎，
-    #  *          一枪点杀所有 ASCII < 32 的无名幽灵控制字符，将其化为 \u00XX 格式。
-    #  *
-    #  * @param[in] data  原始未经处理的标量字串。
-    #  * @return string   100% 安全、无歧义、可直接贴入标准 JSON 解析器的合规字串。
-    #  */
+    # @brief 符合 RFC 8259 工业标准的字串安全净化与转义器 (str escape)
+    # @details 优先通过 string map 处理高频常用字符，随后利用 Tcl 9 原生正则引擎，
+    #          一枪点杀所有 ASCII < 32 的无名幽灵控制字符，将其化为 \u00XX 格式。
+    # 
+    # @param[in] data  原始未经处理的标量字串。
+    # @return string   100% 安全、无歧义、可直接贴入标准 JSON 解析器的合规字串。
     proc escape {data} {
         # 第一防线：高频字符与反斜杠优先映射（【核心铁律】"\\" 必须排在第一行）
         set safe_data [string map {

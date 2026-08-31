@@ -14,18 +14,16 @@ namespace eval ::log {
         weights     {DEBUG 0 INFO 1 WARN 2 ERROR 3} \
     ]
 
-    # /**
-    #  * @brief 初始化日志系统 (init)
-    #  * @details 建立或追加打开指定路径的日志文件。此函数内置终极防坑机制：
-    #  *          强制关闭文件缓冲机制（-buffering none），确保高频数据 1 微秒内物理落盘，
-    #  *          防止程序异常崩溃时丢失关键崩溃日志。
-    #  *
-    #  * @param[in] log_path  日志文件的物理磁盘路径（支持相对与绝对路径）。
-    #  * @param[in] level     全局日志过滤级别，默认为 "INFO"（支持 DEBUG, INFO, WARN, ERROR）。
-    #  *
-    #  * @return void
-    #  * @throws error        若无权限创建或文件路径非法，抛出 Tcl 标准异常。
-    #  */
+    # @brief 初始化日志系统 (init)
+    # @details 建立或追加打开指定路径的日志文件。此函数内置终极防坑机制：
+    #          强制关闭文件缓冲机制（-buffering none），确保高频数据 1 微秒内物理落盘，
+    #          防止程序异常崩溃时丢失关键崩溃日志。
+    # 
+    # @param[in] log_path  日志文件的物理磁盘路径（支持相对与绝对路径）。
+    # @param[in] level     全局日志过滤级别，默认为 "INFO"（支持 DEBUG, INFO, WARN, ERROR）。
+    # 
+    # @return void
+    # @throws error        若无权限创建或文件路径非法，抛出 Tcl 标准异常。
     proc init {log_path {level "INFO"}} {
         variable db
         close_file
@@ -43,13 +41,11 @@ namespace eval ::log {
         info "Log system initialization successful | level: [string toupper $level]"
     }
 
-    # /**
-    #  * @brief 安全关闭日志文件 (close_file)
-    #  * @details 检查当前单例数据库中是否持有活跃的文件句柄，若有则进行安全释放并清空句柄。
-    #  *          内部使用 catch 隔离，确保即使文件被外部提前意外关闭，本函数也绝对不抛异常。
-    #  *
-    #  * @return void
-    #  */
+    # * @brief 安全关闭日志文件 (close_file)
+    # * @details 检查当前单例数据库中是否持有活跃的文件句柄，若有则进行安全释放并清空句柄。
+    # *          内部使用 catch 隔离，确保即使文件被外部提前意外关闭，本函数也绝对不抛异常。
+    # *
+    # * @return void
     proc close_file {} {
         variable db
         set fp [dict get $db file_handle]
@@ -59,16 +55,14 @@ namespace eval ::log {
         }
     }
 
-    # /**
-    #  * @brief [Private] 获取调用栈轨迹 (_get_call_trace)
-    #  * @details 深入 Tcl 9 运行时动态逆向计算当前执行点的祖先栈帧（info frame）。
-    #  *          循环起点精准切掉自身及写引擎封装层，完整还原真实业务现场的拓扑链条。
-    #  *
-    #  * @return list 返回包含三个元素的列表：
-    #  *              - [0] 格式化后的完整堆栈字符串（由 " -> file:line 在函数 cmd" 换行拼接）
-    #  *              - [1] 触发业务代码的顶层文件名（纯尾部文件名）
-    #  *              - [2] 触发业务代码的顶层行号
-    #  */
+    # * @brief [Private] 获取调用栈轨迹 (_get_call_trace)
+    # * @details 深入 Tcl 9 运行时动态逆向计算当前执行点的祖先栈帧（info frame）。
+    # *          循环起点精准切掉自身及写引擎封装层，完整还原真实业务现场的拓扑链条。
+    # *
+    # * @return list 返回包含三个元素的列表：
+    # *              - [0] 格式化后的完整堆栈字符串（由 " -> file:line 在函数 cmd" 换行拼接）
+    # *              - [1] 触发业务代码的顶层文件名（纯尾部文件名）
+    # *              - [2] 触发业务代码的顶层行号
     proc _get_call_trace {} {
         set trace_lines {}
         set total_frames [::info frame]
@@ -97,17 +91,15 @@ namespace eval ::log {
         return [list [join [lreverse $trace_lines] "\n"] $top_file $top_line]
     }
 
-    # /**
-    #  * @brief [Private] 核心写入引擎 (_write)
-    #  * @details 日志系统的中央排程枢纽。负责权重过滤、精准行号单层狙击、异步堆栈触发以及终端 ANSI 彩色渲染。
-    #  *          【核心过滤门】仅 WARN/ERROR 触发昂贵的多层堆栈计算；INFO/DEBUG 拒绝循环，直接单层快照。
-    #  *
-    #  * @param[in] level  当前日志权重等级（DEBUG, INFO, WARN, ERROR）。
-    #  * @param[in] color  ANSI 控制台颜色代码（如 32=绿色, 31=红色, 33=黄色, 36=青色）。
-    #  * @param[in] msg    业务日志正文字符串。
-    #  *
-    #  * @return void
-    #  */
+    # @brief [Private] 核心写入引擎 (_write)
+    # @details 日志系统的中央排程枢纽。负责权重过滤、精准行号单层狙击、异步堆栈触发以及终端 ANSI 彩色渲染。
+    #          【核心过滤门】仅 WARN/ERROR 触发昂贵的多层堆栈计算；INFO/DEBUG 拒绝循环，直接单层快照。
+    # 
+    # @param[in] level  当前日志权重等级（DEBUG, INFO, WARN, ERROR）。
+    # @param[in] color  ANSI 控制台颜色代码（如 32=绿色, 31=红色, 33=黄色, 36=青色）。
+    # @param[in] msg    业务日志正文字符串。
+    # 
+    # @return void
     proc _write {level color msg} {
         variable db
         set current_lvl [dict get $db log_level]
@@ -154,20 +146,18 @@ namespace eval ::log {
         }
     }
 
-    # /**
-    #  * @brief 高性能、调试友好、且不污染现场的 Tcl 9 数据结构对外美化打印门面 (pdict)
-    #  * @details 采用门面模式（Facade Design Pattern）封装。此入口函数负责自动推导最顶层数据类型，
-    #  *          并在不破坏内部格式化缩进的前提下，精准捕捉、补齐最顶层根节点本身的 C 语言物理内存指标。
-    #  *
-    #  * @param[in] data         需要进行美化打印的 Tcl 数据对象（支持字典、列表、任意标量）。
-    #  * @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥。
-    #  * @param[in] indent_level 当前缩进层级。预设为 0（最外层）。
-    #  * @param[in] indent_width 每一层级缩进的空格宽度。预设为 4。
-    #  * @param[in] show_ptr     是否开启内存指标可视化后缀。预设为 0（不显示）。
-    #  * @param[in] style        打印格式，可选："json" "tree"，预设为："tree"
-    #  *
-    #  * @return string          回传格式化后的 JSON-Like 精美排版文本。
-    #  */
+    # @brief 高性能、调试友好、且不污染现场的 Tcl 9 数据结构对外美化打印门面 (pdict)
+    # @details 采用门面模式（Facade Design Pattern）封装。此入口函数负责自动推导最顶层数据类型，
+    #          并在不破坏内部格式化缩进的前提下，精准捕捉、补齐最顶层根节点本身的 C 语言物理内存指标。
+    # 
+    # @param[in] data         需要进行美化打印的 Tcl 数据对象（支持字典、列表、任意标量）。
+    # @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥。
+    # @param[in] indent_level 当前缩进层级。预设为 0（最外层）。
+    # @param[in] indent_width 每一层级缩进的空格宽度。预设为 4。
+    # @param[in] show_ptr     是否开启内存指标可视化后缀。预设为 0（不显示）。
+    # @param[in] style        打印格式，可选："json" "tree"，预设为："tree"
+    # 
+    # @return string          回传格式化后的 JSON-Like 精美排版文本。
     proc pdict {data {type "auto"} {indent_level 0} {indent_width 4} {show_ptr 0} {style json}} {
         if {$type eq "auto"} { set type [sys get_type $data] }
 
@@ -206,20 +196,18 @@ namespace eval ::log {
         }
     }
 
-    # /**
-    #  * @brief [Private] 数据结构美化打印核心递归引擎 (_pdict)
-    #  * @details 配合顶层 get_type 防火墙运作的核心引擎。利用 dict for / foreach 的原生有序性，
-    #  *          深度递归、开箱并重构复杂嵌套结构。内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
-    #  *
-    #  * @param[in] data         当前子节点数据。
-    #  * @param[in] type         当前子节点类型（"dict", "list" 或 "string"）。
-    #  * @param[in] indent_level 当前缩进层级。
-    #  * @param[in] indent_width 缩进空格宽度。
-    #  * @param[in] show_ptr     是否显示内存指标后缀（1=开启，0=关闭）。
-    #  * @param[in] style        打印格式，可选："json" "tree"
-    #  *
-    #  * @return string          返回裁剪完尾部多余逗号后的当前层级格式化文本块。
-    #  */
+    # @brief [Private] 数据结构美化打印核心递归引擎 (_pdict)
+    # @details 配合顶层 get_type 防火墙运作的核心引擎。利用 dict for / foreach 的原生有序性，
+    #          深度递归、开箱并重构复杂嵌套结构。内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
+    # 
+    # @param[in] data         当前子节点数据。
+    # @param[in] type         当前子节点类型（"dict", "list" 或 "string"）。
+    # @param[in] indent_level 当前缩进层级。
+    # @param[in] indent_width 缩进空格宽度。
+    # @param[in] show_ptr     是否显示内存指标后缀（1=开启，0=关闭）。
+    # @param[in] style        打印格式，可选："json" "tree"
+    # 
+    # @return string          返回裁剪完尾部多余逗号后的当前层级格式化文本块。
     proc _pdict {data type indent_level indent_width show_ptr style} {
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
