@@ -38,7 +38,7 @@ test log-pdict-1.3 {测试 dict 转纯文本排版} -setup {
     log init $test_log_file INFO
 } -body {
     set d [dict create key1 val1 key2 val2]
-    set json [log pdict $d]
+    set json [log pdict $d auto 0 4 0 json]
     log info "\n$json"
     string match {*"key1" : "val1"*} $json
 } -cleanup {
@@ -49,7 +49,7 @@ test log-pdict-1.4 {测试 list 转纯文本排版} -setup {
     log init $test_log_file INFO
 } -body {
     set l [list "a" "b" "c"]
-    set json [log pdict $l]
+    set json [log pdict $l auto 0 4 0 json]
     log info "\n$json"
     string match {*"a",*} $json
 } -cleanup {
@@ -68,7 +68,7 @@ test log-pdict-1.5 {测试复杂嵌套：字典里嵌套列表} -setup {
         project "EDA_Automation" \
         tags [list "debug" "core"] \
     ]
-    set result [log pdict $d]
+    set result [log pdict $d auto 0 4 0 json]
     log info "\n$result"
     
     expr {
@@ -88,7 +88,7 @@ test log-pdict-1.6 {测试复杂嵌套：列表中嵌套字典} -setup {
         [dict create name "Tom" age 20] \
         [dict create name "Jack" age 25] \
     ]
-    set result [log pdict $l]
+    set result [log pdict $l auto 0 4 0 json]
     log info "\n$result"
     
     expr {
@@ -112,7 +112,7 @@ test log-pdict-1.7 {测试极端嵌套：多层深度树状套娃} -setup {
             }
         }
     }
-    set result [log pdict $tree]
+    set result [log pdict $tree auto 0 4 0 json]
     log debug "\n$result"
     puts $tree
     
@@ -274,8 +274,8 @@ test log-pdict-1.11 {测试符号引用：顶层键的值指向另一个键名�
     dict set top_dict1 self_link1 $top_dict2
 
     # 2. 调用美化打印
-    log error "\n[log pdict $top_dict1]"
-    log error "\n[log pdict $top_dict2]"
+    log error "\n[log pdict $top_dict1 auto 0 4 0 json]"
+    log error "\n[log pdict $top_dict2 auto 0 4 0 json]"
     
     log close_file
     
@@ -309,7 +309,7 @@ test log-pdict-1.12 {测试符号引用：多层深度符号链的垂直缩进�
             }
         }
     }
-    set result [log pdict $normal_tree]
+    set result [log pdict $normal_tree auto 0 4 0 json]
     log error "\n$result"
     
     log close_file

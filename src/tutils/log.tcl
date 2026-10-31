@@ -1,5 +1,7 @@
 #!/usr/bin/env tclsh9
 
+package require textutil::wcswidth
+
 namespace eval ::log {
     namespace export {[a-z]*}
     namespace ensemble create
@@ -155,7 +157,7 @@ namespace eval ::log {
     # @param[in] style        打印格式，可选："json" "tree"，预设为："tree"
     # 
     # @return string          回传格式化后的 JSON-Like 精美排版文本。
-    proc pdict {data {type "auto"} {indent_level 0} {indent_width 4} {show_ptr 0} {style json}} {
+    proc pdict {data {type "auto"} {indent_level 0} {indent_width 4} {show_ptr 0} {style tree}} {
         if {$type eq "auto"} { set type [sys get_type $data] }
 
         set root_ptr_suffix ""
@@ -193,9 +195,41 @@ namespace eval ::log {
         }
     }
 
+    # @brief [Private] 键名格式化引擎（严格区分 JSON 与 Tree 模式）
+    # @details 针对字典的键名进行渲染。
+    #          - JSON 模式：全量转义，输出为严格单行。
+    #          - Tree 模式：识别 \r\n 及多行文本，开启左边界竖线（|）对齐排版。
+    proc _format_key {k indent ptr_suffix style} {
+        # JSON 模式：保持原样，全量转义（包括 \r\n 变字面量 \r 和 \n）
+        if {$style ne "tree"} {
+            return "${indent}\"[str escape $k]\"${ptr_suffix}"
+        }
+        
+        # Tree 模式：归一化换行符，启动多行竖线对齐
+        set k_norm [string map {"\r\n" "\n" "\r" "\n"} $k]
+        set k_lines [split $k_norm "\n"]
+        
+        if {[llength $k_lines] == 1} {
+            # 单行：常规转义（\t 会自动变成 \t 字面量）
+            return "${indent}\"[str escape $k]\"${ptr_suffix}"
+        } else {
+            # 多行：首行带引号，后续行左侧对齐竖线，末行补后置引号
+            set k_out "${indent}\"[str escape [lindex $k_lines 0]]"
+            foreach line [lrange $k_lines 1 end] {
+                append k_out "\n${indent}|[str escape $line]"
+            }
+            append k_out "\"${ptr_suffix}"
+            return $k_out
+        }
+    }
+
     # @brief [Private] 数据结构美化打印核心递归引擎 (_pdict)
     # @details 配合顶层 get_type 防火墙运作的核心引擎。利用 dict for / foreach 的原生有序性，
     #          深度递归、开箱并重构复杂嵌套结构。内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
+    #          【JSON 模式】：严格单行转义，保留合法 RFC 8259 语义，绝对屏蔽内存指针后缀。
+    #          【Tree 模式】：针对程序员肉眼 Debug 优化。无括号干扰，多行文本启用 \r\n 归一化处理。
+    #          结合 textutil::wcswidth 动态计算全角字符（中文/Emoji）与内存指针的视觉宽度，
+    #          实现多行键值下方竖线（|）的像素级精准左对齐。
     # 
     # @param[in] data         当前子节点数据。
     # @param[in] type         当前子节点类型（"dict", "list" 或 "string"）。
@@ -220,6 +254,9 @@ namespace eval ::log {
                     set sub_type [sys get_type $v]
                     if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $v] }
 
+                    # 统一通过 _format_key 获取格式化好的 Key（自动识别单双行）
+                    set k_out [_format_key $k $indent $ptr_suffix $style]
+
                     if {$sub_type eq "dict" || $sub_type eq "list"} {
                         lassign [list "" ""] mark_left mark_right
                         switch -- "${sub_type}_${style}" {
@@ -228,13 +265,42 @@ namespace eval ::log {
                             "list_json" { set mark_left ": \[" ; set mark_right "$indent\],\n" }
                             "list_tree" { set mark_left "=:" }
                         }
-                        append result "${indent}\"[str escape $k]\"${ptr_suffix} $mark_left\n"
+                        append result "${k_out} $mark_left\n"
                         append result "[_pdict $v $sub_type $next_level $indent_width $show_ptr $style]\n"
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
-                        append result "${indent}\"[str escape $k]\"${ptr_suffix} : \"\",\n"
+                        append result "${k_out} : \"\",\n"
                     } else {
-                        append result "${indent}\"[str escape $k]\"${ptr_suffix} : \"[str escape $v]\",\n"
+                        # ============ 标量 Value 分支 ============
+                        if {$style ne "tree"} {
+                            # JSON 模式：保持原有严格单行转义（\n 和 \r 都变成字面量）
+                            append result "${k_out} : \"[str escape $v]\",\n"
+                        } else {
+                            # Tree 模式：多行对齐
+                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $v]
+                            set v_lines [split $v_norm "\n"]
+                            
+                            if {[llength $v_lines] == 1} {
+                                append result "${k_out} : \"[str escape $v]\",\n"
+                            } else {
+                                set first_val "[str escape [lindex $v_lines 0]]"
+                                
+                                # 对齐基准：拿到 Key 最后一行的视觉长度 + " : " 的 3 个字符
+                                set last_k_visual [lindex [split $k_out "\n"] end]
+                                set k_width [::textutil::wcswidth $last_k_visual]
+                                if {$k_width < 0} { set k_width [string length $last_k_visual] }
+                                set align_len [expr {$k_width + 3}]
+                                set align_str [string repeat " " $align_len]
+                                
+                                set v_out "\"${first_val}"
+                                foreach line [lrange $v_lines 1 end] {
+                                    append v_out "\n${align_str}|[str escape $line]"
+                                }
+                                append v_out "\""
+                                
+                                append result "${k_out} : ${v_out},\n"
+                            }
+                        }
                     }
                 }
                 return [string trimright [string trimright $result "\n"] ","]
@@ -254,14 +320,37 @@ namespace eval ::log {
                             "list_json" { set mark_left \[ ; set mark_right "$indent\],\n" }
                             "list_tree" { set mark_left "=:" }
                         }
-
                         append result "${indent}$mark_left${ptr_suffix}\n"
                         append result "[_pdict $item $sub_type $next_level $indent_width $show_ptr $style]\n"
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
                         append result "${indent}\"\"${ptr_suffix},\n"
                     } else {
-                        append result "${indent}\"[str escape $item]\"${ptr_suffix},\n"
+                        # ============ 列表项标量分支 ============
+                        if {$style ne "tree"} {
+                            # JSON 模式
+                            append result "${indent}\"[str escape $item]\"${ptr_suffix},\n"
+                        } else {
+                            # Tree 模式
+                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $item]
+                            set v_lines [split $v_norm "\n"]
+                            
+                            if {[llength $v_lines] == 1} {
+                                append result "${indent}\"[str escape $item]\"${ptr_suffix},\n"
+                            } else {
+                                set first_val "[str escape [lindex $v_lines 0]]"
+                                # List 的对齐基准：左侧的 indent + 开引号(1个字符)
+                                set align_str [string repeat " " [string length $indent]]
+                                
+                                set v_out "\"${first_val}"
+                                foreach line [lrange $v_lines 1 end] {
+                                    append v_out "\n${align_str}|[str escape $line]"
+                                }
+                                append v_out "\"${ptr_suffix}"
+                                
+                                append result "${indent}${v_out},\n"
+                            }
+                        }
                     }
                 }
                 return [string trimright [string trimright $result "\n"] ","]

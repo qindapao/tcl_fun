@@ -7,24 +7,37 @@ namespace eval ::str {
     namespace ensemble create
 
     # @brief 符合 RFC 8259 工业标准的字串安全净化与转义器 (str escape)
-    # @details 优先通过 string map 处理高频常用字符，随后利用 Tcl 9 原生正则引擎，
-    #          一枪点杀所有 ASCII < 32 的无名幽灵控制字符，将其化为 \u00XX 格式。
+    # @details 【第一防线】利用有序字典构建精准的高频字符与反斜杠映射表，
+    #          并动态剔除调用方指定的例外字符（except_chars）。
+    #          【第二防线】利用 Tcl 9 原生正则引擎，一枪点杀所有 ASCII < 32 的无名幽灵控制字符，
+    #          将其化为符合 RFC 8259 规范的 \u00XX 格式。
     # 
-    # @param[in] data  原始未经处理的标量字串。
-    # @return string   100% 安全、无歧义、可直接贴入标准 JSON 解析器的合规字串。
-    proc escape {data} {
-        # 第一防线：高频字符与反斜杠优先映射（【核心铁律】"\\" 必须排在第一行）
-        set safe_data [string map {
-            "\\" "\\\\"
-            "\"" "\\\""
-            "\a" "\\a"
-            "\b" "\\b"
-            "\f" "\\f"
-            "\n" "\\n"
-            "\r" "\\r"
-            "\t" "\\t"
-            "\v" "\\v"
-        } $data]
+    # @param[in] data         原始未经处理的标量字串。
+    # @param[in] except_chars 可选。指定一个字符集合，这些字符将【不】被转义，保持原样。
+    # @return string          100% 安全、无歧义、可直接贴入标准 JSON 解析器的合规字串。
+    proc escape {data {except_chars ""}} {
+        # 第一防线：使用有序字典定义映射表（【核心铁律】"\\" 必须排在第一行）
+        set map_dict [dict create \
+            "\\" "\\\\" \
+            "\"" "\\\"" \
+            "\b" "\\b" \
+            "\f" "\\f" \
+            "\n" "\\n" \
+            "\r" "\\r" \
+            "\t" "\\t" \
+        ]
+
+        # 组装成 string map 需要的扁平列表，顺便优雅地剔除例外字符
+        set map_list {}
+        set except_list [split $except_chars ""]
+        dict for {k v} $map_dict {
+            if {$k ni $except_list} {
+                lappend map_list $k $v
+            }
+        }
+        
+        # 执行第一道防线映射
+        set safe_data [string map $map_list $data]
 
         # 【核心第二防线】：动态全网雷达扫描，精准狙击那些连字母名字都没有的 ASCII < 32 幽灵控制字符
         # 初始化雷达的起点探测计数器变量 count 为 0，代表从字串的最左侧（第 0 个字符）开始搜索
@@ -43,6 +56,13 @@ namespace eval ::str {
 
             # 利用 string index 指令，精准提取出 $safe_data 在 start_idx 物理位置上的那个不可见控制字符
             set char [string index $safe_data $start_idx]
+
+            # 【新增防线】：如果这个幽灵字符在调用方的例外名单里，直接跳过，不转义
+            if {[string first $char $except_chars] != -1} {
+                # 计数器仅前进 1，跳过该字符，继续雷达扫描
+                set count [expr {$start_idx + 1}]
+                continue
+            }
 
             # 呼叫二进制扫描指令 binary scan，以有符号单字节（c）的二进制格式，读取这个字符的底层内存
             # 将其转化为真实的十进制 ASCII 数值，并将这个数值赋值给新变量 code
