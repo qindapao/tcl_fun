@@ -14,8 +14,8 @@
 #   https://github.com/RubyLane/rl_json
 
 BASE_DIR=$(pwd)
-TCL_VERSION="tcl9.0.3"
-TK_VERSION="tk9.0.3"
+TCL_VERSION="tcl9.1.0"
+TK_VERSION="tk9.1.0"
 PREFIX="/opt/tcl9"
 
 clean ()
@@ -34,8 +34,8 @@ build_tcl9 ()
     make install
 
     cd "$BASE_DIR"
-    mkdir -p "${PREFIX}/lib/tcl9.0"
-    cp -rf ${TCL_VERSION}/library/* "${PREFIX}/lib/tcl9.0/"
+    mkdir -p "${PREFIX}/lib/tcl9.1"
+    cp -rf ${TCL_VERSION}/library/* "${PREFIX}/lib/tcl9.1/"
 }
 
 build_tk9 ()
@@ -60,7 +60,7 @@ install_tcllib ()
     rm -rf config.cache
 
     # 明确告诉它使用哪个 tclsh，这样它会自动识别所有路径
-    ./configure --prefix="$PREFIX" --with-tclsh="$PREFIX/bin/tclsh90.exe"
+    ./configure --prefix="$PREFIX" --with-tclsh="$PREFIX/bin/tclsh91.exe"
 
     # 执行安装
     # 这一步会调用它内部的 sak.tcl（Tcllib 的专属管家），能正确处理路径
@@ -78,7 +78,7 @@ install_tklib ()
 
     # 同样通过 configure 指定路径
     ./configure --prefix="$PREFIX" \
-                --with-tclsh="$PREFIX/bin/tclsh90.exe"
+                --with-tclsh="$PREFIX/bin/tclsh91.exe"
 
     # 因为 Tklib 绝大多数是纯 Tcl/Tk 代码，直接装 library 即可
     make install-libraries
@@ -132,8 +132,32 @@ install_rl_json ()
 mklink_ucrt64 ()
 {
     # 编译完成后建立软连接
-    ln -sf /opt/tcl9/bin/tclsh90.exe /opt/tcl9/bin/tclsh9
-    ln -sf /opt/tcl9/bin/wish90.exe /opt/tcl9/bin/wish9
+    ln -sf /opt/tcl9/bin/tclsh91.exe /opt/tcl9/bin/tclsh9
+    ln -sf /opt/tcl9/bin/wish91.exe /opt/tcl9/bin/wish9
+}
+
+check_all ()
+{
+    echo "=== Tcl / Tcllib / rl_json (tclsh) ==="
+    /opt/tcl9/bin/tclsh9 <<'    EOF'
+        puts "Tcl:      [info patchlevel]"
+        puts "Threaded: [tcl::pkgconfig get threaded]"
+        puts "Thread:   [package require Thread]"
+        puts "json:     [package require json]"
+        # rl_json 的包名需要根据你实际安装的 pkgIndex.tcl 确认
+        if {[catch {package require rl_json} ver]} {
+            puts "rl_json:  not found ($ver)"
+        } else {
+            puts "rl_json:  $ver"
+        }
+        exit
+    EOF
+
+    /opt/tcl9/bin/tclsh9 <<'    EOF'
+    puts "Tk:    [package require Tk]"
+    puts "Tklib: [package require tooltip]"
+    exit
+    EOF
 }
 
 # windows 系统最好是把 tk 装上
