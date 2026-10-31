@@ -10,6 +10,10 @@
 
 #   data flow
 #
+#
+#   errors.tcl
+#      |
+#      v
 #   sys.tcl         str.tcl
 #      |             |
 #      .------.------'
@@ -18,15 +22,18 @@
 #   ip.tcl  log.tcl
 #
 
-# 只有在纯 Linux 生产环境下才锁死 UTF-8；在 Windows/MSYS2 下保持终端默认
-if {$::tcl_platform(platform) eq "unix"} {
-    catch {fconfigure stdout -encoding utf-8}
-    catch {fconfigure stderr -encoding utf-8}
-}
+# 这里暂时屏蔽，理论上编码的设置属于全局操作，应该有业务自己处理
+# 库里面限制这个是越俎代庖
+# # 只有在纯 Linux 生产环境下才锁死 UTF-8；在 Windows/MSYS2 下保持终端默认
+# if {$::tcl_platform(platform) eq "unix"} {
+#     catch {fconfigure stdout -encoding utf-8}
+#     catch {fconfigure stderr -encoding utf-8}
+# }
 
 package ifneeded tutils 1.0 [list apply {{dir} {
-    foreach file {str.tcl sys.tcl log.tcl ip.tcl} {
+    foreach file {errors.tcl str.tcl sys.tcl log.tcl ip.tcl} {
         source [file join $dir $file]
     }
+    package provide tutils 1.0
 }} $dir]
 

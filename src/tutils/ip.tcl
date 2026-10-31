@@ -1,6 +1,4 @@
 #!/usr/bin/env tclsh9
-# 声明属于 tutils 工具箱的 1.0 版本
-package provide tutils 1.0
 
 namespace eval ::ip {
     namespace export {[a-z]*}

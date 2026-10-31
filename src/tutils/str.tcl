@@ -1,8 +1,5 @@
 #!/usr/bin/env tclsh9
 
-# 声明本文件属于 tutils 工具箱的 1.0 版本（供 pkg_mkIndex 识别）
-package provide tutils 1.0
-
 namespace eval ::str {
     # 导出所有小写开头的过程，并建立 Ensemble 集体门面
     namespace export {[a-z]*}

@@ -5,9 +5,6 @@
 # @author 
 # @copyright Copyright (c) 2026
 
-# 声明本文件属于 tutils 工具箱的 1.0 版本（供 pkg_mkIndex 识别）
-package provide tutils 1.0
-
 namespace eval ::sys {
     namespace export {[a-z]*}
     namespace ensemble create
@@ -85,12 +82,9 @@ namespace eval ::sys {
 
         if {$code == 0} { return $out }
 
-        # 统一业务级失败异常：包装成标准的 SYS_EXEC_ERROR 结构
-        return -code error \
-               -errorcode [list SYS_EXEC_ERROR $code] \
-               -errorinfo "External command '$args' failed with exit code $code" \
-               -level 1 \
-               $out
+        errors fail SYS_EXEC_ERROR "" \
+            "External command '$args' failed with exit code $code: $out" \
+            [list $code]
     }
 
     # @brief ISO-C 风格安全外部命令核心执行引擎（内部私有底层函数）
@@ -99,26 +93,24 @@ namespace eval ::sys {
     #          - 系统级完蛋直接向上击穿，强迫主程序中断；业务级非 0 退出安全收敛入数据字典返回。
     #          - 【Tcl 9 强类型内核防卫】：在 open 系统调用前置阶段，动态拦截并强行将系统默认编码
     #            死锁为 `utf-8`，彻底根除因多字节中文字符转换引起的 `unexpected character` 溢出崩溃。
-    # 
+    #
     # @param[in] merge_stderr 是否合流标准错误（1 = 将 stderr 重定向合流至 stdout 管道，0 = 独立分流不捕获）
     # @param[in] cmd_parts    由高层门面函数打包好的完整命令及参数列表（标准 List 格式）
-    # 
+    #
     # @return dict 返回标准的结构化数据字典，包含两个核心键值对：
     #              - output: 过滤掉末尾换行符的干净回显内容（多行中间的换行符完美保留，支持 UTF-8 中文）
     #              - code:   操作系统退出码（精确捕获 CHILDSTATUS 错误码，突发宕机返回 -1）
-    # 
-    # @throws error 
+    #
+    # @throws error
     #          1. `SYS_SYSTEM_PANIC ARGS_EMPTY`: 调用方传递了空参数列表。
     #          2. `SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED`: 管道关闭时发生非 CHILDSTATUS 的内核异常。
     #          3. 原生 Tcl 管道异常: 外部可执行程序不存在（如返回 `POSIX ENOENT`）或本地系统死锁时，
     #             利用 `return -options` 将底层原生堆栈毫无损耗地彻底击穿暴露。
-    # 
+    #
     # @note 核心内部底层逻辑。输入采用列表解包直通内核系统调用（execve），规避了传统字符串拼接引发的注入隐患。
     proc _exec_core {merge_stderr cmd_parts} {
         if {[llength $cmd_parts] == 0} {
-            return -code error \
-                   -errorcode {SYS_SYSTEM_PANIC ARGS_EMPTY} \
-                   "\[sys\] error: no command or arguments provided"
+            errors panic ARGS_EMPTY "\[sys\] error: no command or arguments provided"
         }
 
         # 在建立内核管道前，强行将 Tcl 解释器当前的系统级别编码和系统调用编码死锁为 utf-8
@@ -157,9 +149,7 @@ namespace eval ::sys {
                 }
             } else {
                 # 极端突发情况，无 errorcode 却关闭失败，视为系统级崩溃
-                return -code error \
-                       -errorcode {SYS_SYSTEM_PANIC PIPE_CLOSE_FAILED} \
-                       "\[sys\] unexpected critical pipe closure error: $err"
+                errors panic PIPE_CLOSE_FAILED "\[sys\] unexpected critical pipe closure error: $err"
             }
         }
 
@@ -209,9 +199,7 @@ namespace eval ::sys {
     proc exec_r {host user pwd timeout args} {
         # 【全盘统一设计】：前置强断言，如果 args 不定长参数为空，直接抛出标准系统致命异常
         if {[llength $args] == 0} {
-            return -code error \
-                   -errorcode {SYS_SYSTEM_PANIC REMOTE_ARGS_EMPTY} \
-                   "\[exec_r\] error: no remote command provided"
+            errors panic REMOTE_ARGS_EMPTY "\[exec_r\] error: no remote command provided"
         }
 
         # 组装调用已部署在系统 PATH 中的 cmd2r.exp 脚本的本地参数
@@ -267,9 +255,8 @@ namespace eval ::sys {
 
         # 如果本地源文件不存在，视为内核级故障，就地引发系统级崩溃，不再向下调用外部脚本
         if {![file exists $real_src]} {
-            return -code error \
-                   -errorcode [list SYS_SYSTEM_PANIC LOCAL_FILE_NOT_FOUND] \
-                   "\[cp_l2r\] critical error: local source path does not exist -> $real_src"
+            errors panic LOCAL_FILE_NOT_FOUND \
+                "\[cp_l2r\] critical error: local source path does not exist -> $real_src"
         }
 
         # 组装调用已部署在系统 PATH 中的 cp_l2r.exp 脚本的本地参数
@@ -321,11 +308,8 @@ namespace eval ::sys {
         set local_parent [file dirname $dest_path]
 
         # 【全盘统一设计】：如果本地父目录不存在，视为内核级故障，直接抛出标准异常拦截！
-        if {![file exists $local_parent]} {
-            return -code error \
-                   -errorcode [list SYS_SYSTEM_PANIC LOCAL_DIR_NOT_FOUND] \
-                   "\[cp_r2l\] critical error: local destination directory does not exist -> $local_parent"
-        }
+        errors panic LOCAL_DIR_NOT_FOUND \
+            "\[cp_r2l\] critical error: local destination directory does not exist -> $local_parent"
 
         # 组装调用已部署在系统 PATH 中的 cp_r2l.exp 脚本的本地参数
         set local_cmd [list cp_r2l.exp $host $src_path $dest_path $timeout $user $pwd]

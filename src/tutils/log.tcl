@@ -1,8 +1,5 @@
 #!/usr/bin/env tclsh9
 
-# 声明本文件属于 tutils 工具箱的 1.0 版本（供 pkg_mkIndex 识别）
-package provide tutils 1.0
-
 namespace eval ::log {
     namespace export {[a-z]*}
     namespace ensemble create

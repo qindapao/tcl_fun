@@ -225,17 +225,12 @@ test try_exec-1.1 {测试正常直通：获取干净的标准输出} -body {
     set res
 } -result {Hello Tcl 9}
 
-test try_exec-1.2 {测试业务失败：验证抛出的结构化异常与退出码} -setup {
-    # 这里的退出码根据操作系统可能有所不同，Linux/Windows 下 ls 不存在目录通常返回 2 或 1
-    # 我们可以提前跑一下确认真实退出码，这里假设是 2
-} -body {
-    # 故意执行一个会业务失败的命令
+test try_exec-1.2 {业务失败：验证结构化异常与退出码} -body {
     sys try_exec ls /nonexistent_directory_abc
 } -returnCodes error \
-  -errorCode {SYS_EXEC_ERROR 2} \
-  -match regexp \
-  -result {.*(No such file or directory|could not find).*|.*}
-# 注：-match regexp 配合正则表达式，可以天然免疫 Linux 和 Windows(UCRT64) 控制台英文回显的细微差异！
+  -errorCode {SYS_EXEC_ERROR *} \
+  -match glob \
+  -result {*failed with exit code*}
 
 test try_exec-1.3 {测试内核级完蛋：验证工具不存在时的系统级异常击穿} -body {
     # 故意调用一个绝对不可能存在的命令
@@ -244,7 +239,57 @@ test try_exec-1.3 {测试内核级完蛋：验证工具不存在时的系统级�
   -match regexp \
   -result {couldn't execute "nonexistent_command_xyz_123":.*}
 
+test try_exec-1.4 {业务失败：确定的退出码作为 extra 数据} -body {
+    sys try_exec sh -c "exit 42"
+} -returnCodes error \
+  -errorCode {SYS_EXEC_ERROR 42} \
+  -match glob \
+  -result {*exit code 42*}
 
+test try_exec-1.5 {成功：多行输出保留中间换行，剥离末尾换行} -body {
+    sys try_exec sh -c "printf 'line1\nline2\nline3\n'"
+} -result "line1\nline2\nline3"
+
+test try_exec-1.6 {成功：命令无输出返回空字符串} -body {
+    sys try_exec true
+} -result {}
+
+test try_exec-1.7 {成功：中文输出正确返回} -body {
+    sys try_exec echo "中文测试"
+} -result {中文测试}
+
+test try_exec-1.8 {成功：带空格的参数正确传递} -body {
+    sys try_exec echo "hello world"
+} -result {hello world}
+
+test try_exec-1.9 {系统级：空参数触发 ARGS_EMPTY panic} -body {
+    sys try_exec
+} -returnCodes error \
+  -errorCode {SYS_SYSTEM_PANIC ARGS_EMPTY} \
+  -match glob \
+  -result {*no command or arguments provided*}
+
+test try_exec-1.10 {业务失败：-errorinfo 自动生成，包含调用栈} -body {
+    catch {sys try_exec sh -c "exit 1"} err opts
+    expr {[dict exists $opts -errorinfo] && [string length [dict get $opts -errorinfo]] > 0}
+} -result 1
+
+test try_exec-1.11 {业务失败：stdout 内容嵌入消息} -body {
+    # 用 sh 同时写 stdout 和 exit 1
+    sys try_exec sh -c "echo 'some stdout'; exit 1"
+} -returnCodes error \
+  -errorCode {SYS_EXEC_ERROR 1} \
+  -match glob \
+  -result {*some stdout*}
+
+test try_exec-1.12 {成功：输出含 Tcl 特殊字符不被二次解析} -body {
+    sys try_exec echo {[hello] $world {braces}}
+} -result {[hello] $world {braces}}
+
+test try_exec-1.13 {业务失败：-errorinfo 包含 try_exec 栈帧} -body {
+    catch {sys try_exec sh -c "exit 1"} err opts
+    string match {*try_exec*} [dict get $opts -errorinfo]
+} -result 1
 
 # ====================================================================
 # 自动化测试大盘收尾：统计红绿灯通过率
