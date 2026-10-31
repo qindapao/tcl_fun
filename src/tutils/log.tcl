@@ -73,7 +73,9 @@ namespace eval ::log {
             if {[catch {::info frame $i} frame_dict]} { break }
             set file [dict getwithdefault $frame_dict file "unknown"]
             set line [dict getwithdefault $frame_dict line "0"]
-            set cmd  [lindex [dict getwithdefault $frame_dict cmd "global"] 0]
+
+            set cmd_raw [dict getwithdefault $frame_dict cmd "global"]
+            set cmd [lindex [split $cmd_raw] 0]
 
             # 精准抓取剥离后的第一个真实业务代码的文件名和行号
             if {[llength $trace_lines] == 0} {

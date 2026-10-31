@@ -346,53 +346,50 @@ namespace eval ::sys {
     # @details 本函数是 tutils 工具箱的核心基石。专为 Tcl 9 内核的值共享与优化机制设计。
     #          它利用底层未公开指令深入 C 语言运行时，在完全不触发写时复制 (Copy-On-Write)
     #          和内部人格突变 (Shimmering) 的前提下，精准识别对象的真实物理形态。
-    # 
+    #
     #          【硬核机制说明】：
+    #          0. 空值前置拦截：用 $data eq "" 做纯字符串比较（不触发 shimmer），
+    #             在 representation 探测之前拦下空值，统一返回 "empty"。
+    #             原因：Tcl 9.1 下空字符串内部表示可能被标记为 list（共享优化），
+    #             representation 对空值不可信，必须在字符串语义层面提前定性。
     #          1. 顶级标量防火墙：优先拦截 pure string, string, int, double, bytearray。
     #             绝对不给它们接触 llength 或 dict keys 的机会，从源头上彻底切断「单元素列表」
     #             和「二进制字节流解码」引发的隔空内存污染。
     #          2. 内核标签直通车：对已标记为 dict 或 list 的复合结构进行 C 语言级别的快速放行。
     #          3. 混沌文本安全探测：仅对未打标签的原始字串进行防污染隔离探测（利用 catch 隔离），
     #             安全推导出潜在的字典或列表结构。
-    # 
+    #
+    #          【调用方必读】：空字符串与空列表在 Tcl 内部表示上无法可靠区分，
+    #          本函数对二者统一返回 "empty"。若业务需区分，必须在调用侧保留原始语义，
+    #          不可依赖本函数的返回值。
+    #
     # @param[in] data  需要进行内部类型探测的任意 Tcl 数据对象（支持原子标量与复杂嵌套容器）。
-    # 
-    # @return string   返回该对象的业务抽象类型，仅限于以下三种标准枚举值：
-    #                  - "dict"       : 纯正的、或符合语法规则的字典结构
-    #                  - "list"       : 纯正的、或符合语法规则的列表结构
-    #                  - "empty"      : 空
-    #                  - "string"     : 包含纯文字、数字、布林值及二进制字节流在内的所有原子标量
+    #
+    # @return string   返回该对象的业务抽象类型，仅限于以下四种标准枚举值：
+    #                  - "dict"   : 纯正的、或符合语法规则的字典结构（size > 0）
+    #                  - "list"   : 纯正的、或符合语法规则的列表结构（length > 0）
+    #                  - "empty"  : 空值（空字符串/空列表/空字典统一归此，调用方自解释）
+    #                  - "string" : 非空的原子标量（纯文字、数字、布林值及二进制字节流）
     proc get_type {data} {
-        set rep [tcl::unsupported::representation $data]
-        set rep_lower [string tolower $rep]
+        # 空值：representation 不可信，统一归 empty，由调用方按业务语义解释
+        if {$data eq ""} { return "empty" }
 
-        # 1. 【核心严谨防线】基本标量防火墙
-        # 只要底层包含 string、int、double 或 bytearray 等任何原子类型，
-        # 立刻作为 "string"（标量）安全撤退，绝对不给后面任何引发突变的指令触碰的机会！
-        if {[regexp {value is a (pure )?(string|int|double|bytearray)} $rep_lower]} {
+        set rep [string tolower [tcl::unsupported::representation $data]]
+
+        # 基本标量防火墙
+        if {[regexp {value is a (pure )?(string|int|double|bytearray)} $rep]} {
             return "string"
         }
 
-        # 2. 第一防线：依靠 C 层面真正的内部表示，绝对不触发隐式转换
-        if {[string match {*value is a dict*} $rep_lower]} {
-            if {[dict size $data] == 0} {
-                return "empty"
-            } else {
-                return "dict"
-            }
+        # 内核标签直通车
+        if {[string match {*value is a dict*} $rep]} {
+            return [expr {[dict size $data] == 0 ? "empty" : "dict"}]
         }
-        if {[string match {*value is a list*} $rep_lower]} {
-            if {[llength $data] == 0} {
-                return "empty"
-            } else {
-                return "list"
-            }
+        if {[string match {*value is a list*} $rep]} {
+            return [expr {[llength $data] == 0 ? "empty" : "list"}]
         }
 
-        if {$data eq ""} { return "string" }
-
-        # 3. 只有非 pure string 且可能代表列表/字典的复合文本，才允许安全探测
-        # 探测前先用 catch 隔离，防止人格污染
+        # 混沌文本安全探测
         if {![catch {dict keys $data} dkeys] && [llength $dkeys] > 0} {
             if {[expr {[llength $data] % 2}] == 0} { return "dict" }
         }
