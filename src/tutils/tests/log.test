@@ -112,9 +112,9 @@ test log-pdict-1.7 {测试极端嵌套：多层深度树状套娃} -setup {
             }
         }
     }
-    set result [log pdict $tree auto 0 4 0 json]
+    set result [log pdict $tree auto 0 4 0 tree]
     log debug "\n$result"
-    puts $tree
+    puts "$tree"
     
     expr {
         [string match {*root*} $result] && \

@@ -191,9 +191,7 @@ namespace eval ::log {
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $data $type\
                     $next_level $indent_width $show_ptr $style]\n${mark_right}"
             }
-            default {
-                return "${indent}\"[str escape $data]\"${root_ptr_suffix}"
-            }
+            default { return [_format_key $data $indent $root_ptr_suffix $style] }
         }
     }
 

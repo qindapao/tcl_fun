@@ -376,17 +376,20 @@ namespace eval ::sys {
 
         set rep [string tolower [tcl::unsupported::representation $data]]
 
-        # 基本标量防火墙
-        if {[regexp {value is a (pure )?(string|int|double|bytearray)} $rep]} {
-            return "string"
-        }
-
-        # 内核标签直通车
-        if {[string match {*value is a dict*} $rep]} {
-            return [expr {[dict size $data] == 0 ? "empty" : "dict"}]
-        }
-        if {[string match {*value is a list*} $rep]} {
-            return [expr {[llength $data] == 0 ? "empty" : "list"}]
+        # 注释只能放在某个模式的执行体（body）内部，不能和模式混在一起
+        # 官方的 api 会造成类型闪烁
+        # if {[info object isa object $data]} { return "object" }
+        switch -regexp -- $rep {
+            {value is a cmdName}                    { return "object" }
+            {value is a (pure )?bytearray}          { return "bytearray" }
+            {value is a (pure )?(string|int|bignum|double)} { return "string" }
+            {value is a dict}                       {
+                # 这里的注释是安全的，因为它在动作体内部
+                return [expr {[dict size $data] == 0 ? "empty" : "dict"}]
+            }
+            {value is a list}                       {
+                return [expr {[llength $data] == 0 ? "empty" : "list"}]
+            }
         }
 
         # 混沌文本安全探测
@@ -399,6 +402,8 @@ namespace eval ::sys {
 
         return "string"
     }
+
+
 
     # @brief 高性能、调试友好、且不污染变量现场的 Tcl 9 对象内存指标内窥器
     # 
