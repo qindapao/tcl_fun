@@ -337,33 +337,32 @@ namespace eval ::log {
     }
 
     # @brief [Private] 数据结构美化打印核心递归引擎 (_pdict)
-    # @details 配合顶层 get_type 防火墙运作的核心引擎。利用 dict for / foreach 的原生有序性，
-    #          深度递归、开箱并重构复杂嵌套结构。内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
+    # @details 仅供顶层门面 pdict 调用的私有递归引擎，输入契约仅限 dict / list 两种容器类型。
+    #          非容器类型（empty / object / bytearray / 标量）一律由顶层 pdict 就地渲染拦截，
+    #          不会传入本函数；本函数内部递归时也只传入 dict / list。若误传其他类型，
+    #          switch 落空返回空串，以显式暴露契约违反，不做静默兜底。
+    #          利用 dict for / foreach 的原生有序性，深度递归、开箱并重构复杂嵌套结构。
+    #          内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
     #          【JSON 模式】：严格单行转义，保留合法 RFC 8259 语义，绝对屏蔽内存指针后缀。
     #          【Tree 模式】：针对程序员肉眼 Debug 优化。无括号干扰，多行文本启用 \r\n 归一化处理。
     #          结合 textutil::wcswidth 动态计算全角字符（中文/Emoji）与内存指针的视觉宽度，
     #          实现多行键值下方竖线（|）的像素级精准左对齐。
-    #          【object】: TclOO 对象经 _info_obj 拍平为纯文本（类、父类、变量及值），
+    #          【object】: 子项为 TclOO 对象时，经 _info_obj 拍平为纯文本（类、父类、变量及值），
     #          不递归展开对象属性内部的嵌套结构，避免无限递归与类型降级。
-    #          【bytearray】: 经 _info_bytearray 输出十六进制头部预览与魔数类型标注，
-    #          只展示前 max_bytes 个字节，绝不输出完整原始二进制。
-    # 
-    # @param[in] data         当前子节点数据。
-    # @param[in] type         当前子节点类型。常见取值："dict", "list", "object",
-    #                         "bytearray", "empty"，以及 "string"/"int"/"double"/
-    #                         "bignum" 等标量类型；传 "auto" 时内部调用 sys get_type 推导。
+    #          【bytearray】: 子项为 bytearray 时，经 _info_bytearray 输出十六进制头部预览与魔数
+    #          类型标注，只展示前 max_bytes 个字节，绝不输出完整原始二进制。
+    #
+    # @param[in] data         当前子节点数据，必须是 dict 或 list（与 type 一致）。
+    # @param[in] type         当前子节点类型，仅接受 "dict" 或 "list"。
     # @param[in] indent_level 当前缩进层级。
     # @param[in] indent_width 缩进空格宽度。
     # @param[in] show_ptr     是否显示内存指标后缀（1=开启，0=关闭）。
     # @param[in] style        打印格式，可选："json" "tree"
-    # 
+    #
     # @return string          返回裁剪完尾部多余逗号后的当前层级格式化文本块。
     proc _pdict {data type indent_level indent_width show_ptr style} {
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
-
-        # 自动推导当前这一层到底是什么类型
-        if {$type eq "auto"} { set type [sys get_type $data] }
 
         set ptr_suffix ""
         switch -- $type {
@@ -485,14 +484,6 @@ namespace eval ::log {
                     }
                 }
                 return [string trimright [string trimright $result "\n"] ","]
-            }
-            "empty" {
-                if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $data] }
-                return "${indent}\"\"$ptr_suffix"
-            }
-            default {
-                if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $data] }
-                return "${indent}\"[str escape $data]\"$ptr_suffix"
             }
         }
     }
