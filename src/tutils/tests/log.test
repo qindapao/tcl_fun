@@ -371,6 +371,216 @@ test log-pdict-1.13 {测试树状样式：验证 tree 模式下业务数据末�
 } -result 1
 
 
+# ======================================================================
+# 6. TclOO 对象内省与无闪烁测试
+# ======================================================================
+
+test log-pdict-1.14 {测试 TclOO 对象：类、父类、变量及值均被打印} -setup {
+    log init $test_log_file INFO
+    oo::class create TutilsTestNode {
+        variable name
+        variable value
+        constructor {n v} {
+            set name $n
+            set value $v
+        }
+    }
+} -body {
+    set obj [TutilsTestNode new "alpha" 42]
+    namespace which $obj
+    set result [log pdict $obj auto 0 4 0 tree]
+    log info "\n$result"
+    expr {
+        [string match {*class: ::TutilsTestNode*} $result] && \
+        [string match {*superclasses: ::oo::object*} $result] && \
+        [string match {*name = alpha*} $result] && \
+        [string match {*value = 42*} $result]
+    }
+} -cleanup {
+    catch {TutilsTestNode destroy}
+    catch {oo::class delete TutilsTestNode}
+    log close_file
+} -result 1
+
+test log-pdict-1.15 {测试 TclOO 对象：cmdName 内部表示不被降级为 string} -setup {
+    log init $test_log_file INFO
+    oo::class create TutilsTestNode2 {
+        variable name
+        constructor {n} { set name $n }
+    }
+} -body {
+    set obj [TutilsTestNode2 new "beta"]
+    namespace which $obj
+    set before [tcl::unsupported::representation $obj]
+    log pdict $obj auto 0 4 0 tree
+    set after [tcl::unsupported::representation $obj]
+    expr {
+        [string match {*value is a cmdName*} $before] && \
+        [string match {*value is a cmdName*} $after]
+    }
+} -cleanup {
+    catch {TutilsTestNode2 destroy}
+    catch {oo::class delete TutilsTestNode2}
+    log close_file
+} -result 1
+
+# ======================================================================
+# 7. bytearray 安全预览与魔数识别测试
+# ======================================================================
+
+test log-pdict-1.16 {测试 bytearray：只输出头部十六进制，不输出完整二进制} -setup {
+    log init $test_log_file INFO
+} -body {
+    # 32 字节，超过 max_bytes=16，应截断并带省略号
+    set ba [binary format H* "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"]
+    set result [log pdict $ba auto 0 4 0 tree]
+    log info "\n$result"
+    expr {
+        [string match {*<bytearray len=32 head=16:*} $result] && \
+        [string match {*...*} $result]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.17 {测试 bytearray：字节 0x00 被正确编码为 "00"} -setup {
+    log init $test_log_file INFO
+} -body {
+    set ba [binary format H* "4800656c6c6f"]
+    set result [log pdict $ba auto 0 4 0 tree]
+    log info "\n$result"
+    string match {*48 00 65 6c 6c 6f*} $result
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.18 {测试 bytearray：魔数识别 PNG} -setup {
+    log init $test_log_file INFO
+} -body {
+    set ba [binary format H* "89504e470d0a1a0a0000000d4948445200000010"]
+    set result [log pdict $ba auto 0 4 0 tree]
+    log info "\n$result"
+    string match {*type=PNG image*} $result
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.19 {测试 bytearray：魔数识别 ZIP} -setup {
+    log init $test_log_file INFO
+} -body {
+    set ba [binary format H* "504b0304140000000800f0a1b25a0000"]
+    set result [log pdict $ba auto 0 4 0 tree]
+    log info "\n$result"
+    string match {*type=ZIP archive*} $result
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.20 {测试 bytearray：未知数据不标注 type} -setup {
+    log init $test_log_file INFO
+} -body {
+    set ba [binary format H* "48656c6c6f005c0a1b"]
+    set result [log pdict $ba auto 0 4 0 tree]
+    log info "\n$result"
+    expr {
+        [string match {*<bytearray len=9 head=9:*} $result] && \
+        ![string match {*type=*} $result]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+test log-pdict-1.21 {测试 bytearray：内部表示不因 pdict 发生字符串化} -setup {
+    log init $test_log_file INFO
+} -body {
+    set ba [binary format H* "48656c6c6f005c0a1b"]
+    set before [tcl::unsupported::representation $ba]
+    log pdict $ba auto 0 4 0 tree
+    set after [tcl::unsupported::representation $ba]
+    expr {
+        [string match {*value is a bytearray*} $before] && \
+        [string match {*no string representation*} $before] && \
+        [string match {*value is a bytearray*} $after] && \
+        [string match {*no string representation*} $after]
+    }
+} -cleanup {
+    log close_file
+} -result 1
+
+# ======================================================================
+# 8. get_type 顺序正确性（敏感类型先于 eq ""）
+# ======================================================================
+
+test get-type-1.22 {测试 get_type：bytearray 在 eq "" 之前被识别，不触发字符串化} -setup {
+    # 不依赖 log，直接调 tutils 的 get_type
+} -body {
+    set ba [binary format H* "48656c6c6f005c0a1b"]
+    set before [tcl::unsupported::representation $ba]
+    set t [sys get_type $ba]
+    set after [tcl::unsupported::representation $ba]
+    expr {
+        $t eq "bytearray" && \
+        [string match {*no string representation*} $before] && \
+        [string match {*no string representation*} $after]
+    }
+} -result 1
+
+test get-type-1.23 {测试 get_type：cmdName 在 eq "" 之前被识别，不降级} -setup {
+    oo::class create TutilsTestNode3 {
+        variable x
+        constructor {} { set x 1 }
+    }
+} -body {
+    set obj [TutilsTestNode3 new]
+    namespace which $obj
+    set before [tcl::unsupported::representation $obj]
+    set t [sys get_type $obj]
+    set after [tcl::unsupported::representation $obj]
+    expr {
+        $t eq "object" && \
+        [string match {*value is a cmdName*} $before] && \
+        [string match {*value is a cmdName*} $after]
+    }
+} -cleanup {
+    catch {TutilsTestNode3 destroy}
+    catch {oo::class delete TutilsTestNode3}
+} -result 1
+
+# ======================================================================
+# 9. 混合嵌套：对象 + bytearray + dict/list
+# ======================================================================
+
+test log-pdict-1.24 {测试混合嵌套：dict/list 中同时挂载对象与 bytearray} -setup {
+    log init $test_log_file INFO
+    oo::class create TutilsTestNode4 {
+        variable name
+        constructor {n} { set name $n }
+    }
+} -body {
+    set obj [TutilsTestNode4 new "gamma"]
+    namespace which $obj
+    set ba [binary format H* "89504e470d0a1a0a0000000d49484452"]
+    set data [dict create \
+        id 100 \
+        obj $obj \
+        bin $ba \
+        nested [list [dict create k1 v1] "plain"] \
+    ]
+    set result [log pdict $data auto 0 4 0 tree]
+    log info "\n$result"
+    expr {
+        [string match {*class: ::TutilsTestNode4*} $result] && \
+        [string match {*<bytearray len=*type=PNG image*} $result] && \
+        [string match {*"k1"*} $result]
+    }
+} -cleanup {
+    catch {TutilsTestNode4 destroy}
+    catch {oo::class delete TutilsTestNode4}
+    log close_file
+} -result 1
+
+
+
 # 全局大清洗
 catch {file delete -force $test_log_file}
 cleanupTests

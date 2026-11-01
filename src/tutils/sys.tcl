@@ -344,44 +344,51 @@ namespace eval ::sys {
 
     # @brief 高性能、0 误伤、且不污染变量现场的 Tcl 9 数据类型内窥器 (get_type)
     # @details 本函数是 tutils 工具箱的核心基石。专为 Tcl 9 内核的值共享与优化机制设计。
-    #          它利用底层未公开指令深入 C 语言运行时，在完全不触发写时复制 (Copy-On-Write)
+    #          它利用底层未公开指令深入 C 语言运行时，在尽量避免触发写时复制 (Copy-On-Write)
     #          和内部人格突变 (Shimmering) 的前提下，精准识别对象的真实物理形态。
     #
     #          【硬核机制说明】：
-    #          0. 空值前置拦截：用 $data eq "" 做纯字符串比较（不触发 shimmer），
-    #             在 representation 探测之前拦下空值，统一返回 "empty"。
-    #             原因：Tcl 9.1 下空字符串内部表示可能被标记为 list（共享优化），
-    #             representation 对空值不可信，必须在字符串语义层面提前定性。
-    #          1. 顶级标量防火墙：优先拦截 pure string, string, int, double, bytearray。
-    #             绝对不给它们接触 llength 或 dict keys 的机会，从源头上彻底切断「单元素列表」
-    #             和「二进制字节流解码」引发的隔空内存污染。
-    #          2. 内核标签直通车：对已标记为 dict 或 list 的复合结构进行 C 语言级别的快速放行。
-    #          3. 混沌文本安全探测：仅对未打标签的原始字串进行防污染隔离探测（利用 catch 隔离），
+    #          1. 内部表示敏感类型前置拦截：
+    #             - bytearray：必须在 $data eq "" 之前判断，否则 eq 会强制生成字符串表示。
+    #             - cmdName（TclOO 对象句柄）：必须在 eq "" 之前判断，否则 eq 会令其退化
+    #               为普通 string，丢失对象身份。
+    #          2. 空值判定：$data eq "" 统一归 "empty"。注意该操作本身有副作用——
+    #             会字符串化 bytearray、会降级 cmdName，因此必须排在上述敏感类型之后。
+    #             空字符串与空列表/空字典在内部表示上无法可靠区分，统一归 "empty"，
+    #             调用方若需区分，必须自行保留原始语义。
+    #          3. 内核标签直通车：对已标记为 dict / list 的复合结构做 C 语言级别快速放行，
+    #             空容器归 "empty"，非空容器归 "dict" / "list"。
+    #          4. 混沌文本安全探测：仅对未打标签的原始字串做防污染隔离探测（catch 隔离），
     #             安全推导出潜在的字典或列表结构。
     #
-    #          【调用方必读】：空字符串与空列表在 Tcl 内部表示上无法可靠区分，
-    #          本函数对二者统一返回 "empty"。若业务需区分，必须在调用侧保留原始语义，
-    #          不可依赖本函数的返回值。
+    #          【已知局限】：cmdName 不是 TclOO 对象的稳定身份标记，而是"曾被命令解析过"
+    #          的缓存状态。未经命令解析的对象句柄会被识别为 "string"。若需可靠识别对象，
+    #          调用方应在传入前触发一次命令解析，或改用 info object isa object（但有表示副作用）。
     #
     # @param[in] data  需要进行内部类型探测的任意 Tcl 数据对象（支持原子标量与复杂嵌套容器）。
     #
-    # @return string   返回该对象的业务抽象类型，仅限于以下四种标准枚举值：
-    #                  - "dict"   : 纯正的、或符合语法规则的字典结构（size > 0）
-    #                  - "list"   : 纯正的、或符合语法规则的列表结构（length > 0）
-    #                  - "empty"  : 空值（空字符串/空列表/空字典统一归此，调用方自解释）
-    #                  - "string" : 非空的原子标量（纯文字、数字、布林值及二进制字节流）
+    # @return string   返回该对象的业务抽象类型，枚举值如下：
+    #                  - "dict"      : 非空字典结构
+    #                  - "list"      : 非空列表结构
+    #                  - "empty"     : 空值（空字符串/空列表/空字典统一归此，调用方自解释）
+    #                  - "string"    : 非空原子标量（纯文字、数字、布林值等）
+    #                  - "object"    : TclOO 对象句柄（内部表示为 cmdName 时）
+    #                  - "bytearray" : 字节数组（二进制数据）
     proc get_type {data} {
-        # 空值：representation 不可信，统一归 empty，由调用方按业务语义解释
-        if {$data eq ""} { return "empty" }
-
         set rep [string tolower [tcl::unsupported::representation $data]]
+
+        if {[regexp {value is a (pure )?bytearray} $rep]}   { return "bytearray" }
+        if {[regexp {value is a cmdname} $rep]}             { return "object" }
+
+        # 空值：representation 不可信，统一归 empty，由调用方按业务语义解释
+        # 这个操作会生成 bytearray 的字符串表示，这是我们应该避免的
+        # 这个操作会导致 cmdName 退化成字符串
+        if {$data eq ""} { return "empty" }
 
         # 注释只能放在某个模式的执行体（body）内部，不能和模式混在一起
         # 官方的 api 会造成类型闪烁
         # if {[info object isa object $data]} { return "object" }
         switch -regexp -- $rep {
-            {value is a cmdName}                    { return "object" }
-            {value is a (pure )?bytearray}          { return "bytearray" }
             {value is a (pure )?(string|int|bignum|double)} { return "string" }
             {value is a dict}                       {
                 # 这里的注释是安全的，因为它在动作体内部
@@ -396,10 +403,7 @@ namespace eval ::sys {
         if {![catch {dict keys $data} dkeys] && [llength $dkeys] > 0} {
             if {[expr {[llength $data] % 2}] == 0} { return "dict" }
         }
-        if {![catch {llength $data} len] && $len > 1} {
-            return "list"
-        }
-
+        if {![catch {llength $data} len] && $len > 1} { return "list" }
         return "string"
     }
 

@@ -150,9 +150,18 @@ namespace eval ::log {
     # @brief 高性能、调试友好、且不污染现场的 Tcl 9 数据结构对外美化打印门面 (pdict)
     # @details 采用门面模式（Facade Design Pattern）封装。此入口函数负责自动推导最顶层数据类型，
     #          并在不破坏内部格式化缩进的前提下，精准捕捉、补齐最顶层根节点本身的 C 语言物理内存指标。
+    #          顶层类型分派规则：
+    #          - dict / list：递归进入 _pdict 展开嵌套结构。
+    #          - object：经 _info_obj 拍平为纯文本（类、父类、变量及值），不递归展开对象属性。
+    #          - bytearray：经 _info_bytearray 输出十六进制头部预览与魔数类型标注，绝不输出完整二进制。
+    #          - empty：直接输出空字符串占位。
+    #          - 其他标量：经 _format_key 转义渲染。
+    #          所有非容器类型均不触发原始对象的字符串化或类型降级（cmdName/bytearray 保持原内部表示）。
     # 
-    # @param[in] data         需要进行美化打印的 Tcl 数据对象（支持字典、列表、任意标量）。
-    # @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥。
+    # @param[in] data         需要进行美化打印的 Tcl 数据对象。支持 dict、list、TclOO 对象、
+    #                         bytearray、empty 以及任意标量。
+    # @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥；
+    #                         显式传入时跳过 sys get_type，可用于强制按指定类型渲染。
     # @param[in] indent_level 当前缩进层级。预设为 0（最外层）。
     # @param[in] indent_width 每一层级缩进的空格宽度。预设为 4。
     # @param[in] show_ptr     是否开启内存指标可视化后缀。预设为 0（不显示）。
@@ -191,8 +200,112 @@ namespace eval ::log {
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $data $type\
                     $next_level $indent_width $show_ptr $style]\n${mark_right}"
             }
-            default { return [_format_key $data $indent $root_ptr_suffix $style] }
+            "object"    { return [_format_key [_info_obj $data] $indent $root_ptr_suffix $style] }
+            "bytearray" { return [_format_key [_info_bytearray $data] $indent $root_ptr_suffix $style] }
+            default     { return [_format_key $data $indent $root_ptr_suffix $style] }
         }
+    }
+
+    # @brief [Private] 根据十六进制头部识别常见二进制格式
+    # @details 传入小写、无空格的十六进制字符串（至少前 8 个字符），
+    #          匹配常见魔数，返回人类可读的类型名；无法识别返回空串。
+    # @param[in] hex  十六进制字符串（小写，无空格）
+    # @return string  类型名，如 "PNG image"；无法识别返回 ""
+    proc _magic_type {hex} {
+        # 取前 16 个十六进制字符（8 字节）做匹配，足够覆盖常见魔数
+        set head [string range $hex 0 15]
+        switch -glob -- $head {
+            "89504e47*" { return "PNG image" }
+            "ffd8*"     { return "JPEG image" }
+            "47494638*" { return "GIF image" }
+            "25504446*" { return "PDF document" }
+            "504b0304*" { return "ZIP archive (or Office Open XML)" }
+            "1f8b*"     { return "GZIP archive" }
+            "425a68*"   { return "BZIP2 archive" }
+            "377abcaf*" { return "7-Zip archive" }
+            "52617221*" { return "RAR archive" }
+            "4d5a*"     { return "Windows executable" }
+            "7f454c46*" { return "ELF executable" }
+            "cafebabe*" { return "Java class file" }
+            "000001ba*" { return "MPEG program stream" }
+            "000001b3*" { return "MPEG video" }
+            "494433*"   { return "MP3 with ID3 tag" }
+            "4f676753*" { return "OGG container" }
+            "664c6143*" { return "FLAC audio" }
+            "52494646*" { return "RIFF container (WAV/AVI/WebP)" }
+            "1a45dfa3*" { return "Matroska/WebM" }
+            "38425053*" { return "Photoshop document" }
+            "d0cf11e0*" { return "OLE2 compound (DOC/XLS/PPT)" }
+            default     { return "" }
+        }
+    }
+
+    # @brief [Private] bytearray 安全预览，返回纯文本
+    # @details 只打印前 max_bytes 个字节的十六进制转储，绝不输出完整二进制内容。
+    #          尝试根据头部魔数识别常见格式，识别成功时在预览中标注类型。
+    #          不带缩进、不带指针后缀、不区分 style，由调用方负责排版。
+    # @param[in] data        bytearray 值
+    # @param[in] max_bytes   最多显示的字节数，默认 16
+    # @return string         形如 "<bytearray len=100 head=16: 48 65 ... type=PNG image>" 的纯文本
+    proc _info_bytearray {data {max_bytes 16}} {
+        set len [string length $data]
+        set head_len [expr {$len > $max_bytes ? $max_bytes : $len}]
+
+        # 取前 head_len 个字节，转十六进制
+        set hex [binary encode hex [string range $data 0 [expr {$head_len - 1}]]]
+
+        # 每两个字符插一个空格
+        set hex_spaced [regsub -all {..} $hex {& }]
+        set hex_spaced [string trimright $hex_spaced " "]
+
+        set preview "<bytearray len=${len} head=${head_len}: ${hex_spaced}"
+        if {$len > $max_bytes} {
+            append preview " ..."
+        }
+
+        # 头部类型识别（用无空格的原始 hex）
+        set mtype [_magic_type $hex]
+        if {$mtype ne ""} {
+            append preview " type=${mtype}"
+        }
+
+        append preview ">"
+        return $preview
+    }
+
+    # @brief [Private] TclOO 对象内省，返回纯文本信息
+    # @details 输出对象的类、直接父类、字符串表示以及对象变量及当前值，不涉及方法。
+    #          不带缩进、不带指针后缀、不区分 style，由调用方负责排版。
+    # @param[in] obj  TclOO 对象句柄（命令名）
+    # @return string  纯文本对象信息
+    proc _info_obj {obj} {
+        set cls [::info object class $obj]
+        set supers [::info class superclasses $cls]
+        set var_names [lsort [::info object vars $obj]]
+        set ns [::info object namespace $obj]
+
+        set props {}
+        foreach vname $var_names {
+            if {[catch {set ${ns}::${vname}} vval]} {
+                set vval "<无法读取>"
+            }
+            lappend props $vname $vval
+        }
+
+        set out "object $obj\n"
+        append out "    class: $cls\n"
+        append out "    superclasses: $supers\n"
+
+        if {[llength $props] == 0} {
+            append out "    vars: <none>"
+        } else {
+            append out "    vars:\n"
+            foreach {k v} $props {
+                append out "        $k = $v\n"
+            }
+            set out [string trimright $out "\n"]
+        }
+        return $out
     }
 
     # @brief [Private] 键名格式化引擎（严格区分 JSON 与 Tree 模式）
@@ -230,9 +343,15 @@ namespace eval ::log {
     #          【Tree 模式】：针对程序员肉眼 Debug 优化。无括号干扰，多行文本启用 \r\n 归一化处理。
     #          结合 textutil::wcswidth 动态计算全角字符（中文/Emoji）与内存指针的视觉宽度，
     #          实现多行键值下方竖线（|）的像素级精准左对齐。
+    #          【object】: TclOO 对象经 _info_obj 拍平为纯文本（类、父类、变量及值），
+    #          不递归展开对象属性内部的嵌套结构，避免无限递归与类型降级。
+    #          【bytearray】: 经 _info_bytearray 输出十六进制头部预览与魔数类型标注，
+    #          只展示前 max_bytes 个字节，绝不输出完整原始二进制。
     # 
     # @param[in] data         当前子节点数据。
-    # @param[in] type         当前子节点类型（"dict", "list" 或 "string"）。
+    # @param[in] type         当前子节点类型。常见取值："dict", "list", "object",
+    #                         "bytearray", "empty"，以及 "string"/"int"/"double"/
+    #                         "bignum" 等标量类型；传 "auto" 时内部调用 sys get_type 推导。
     # @param[in] indent_level 当前缩进层级。
     # @param[in] indent_width 缩进空格宽度。
     # @param[in] show_ptr     是否显示内存指标后缀（1=开启，0=关闭）。
@@ -271,17 +390,23 @@ namespace eval ::log {
                     } elseif {$sub_type eq "empty"} {
                         append result "${k_out} : \"\",\n"
                     } else {
+                        switch -- $sub_type {
+                            "object"    { set v_str [_info_obj $v] }
+                            "bytearray" { set v_str [_info_bytearray $v] }
+                            default     { set v_str $v }
+                        }
+
                         # ============ 标量 Value 分支 ============
                         if {$style ne "tree"} {
                             # JSON 模式：保持原有严格单行转义（\n 和 \r 都变成字面量）
-                            append result "${k_out} : \"[str escape $v]\",\n"
+                            append result "${k_out} : \"[str escape $v_str]\",\n"
                         } else {
                             # Tree 模式：多行对齐
-                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $v]
+                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $v_str]
                             set v_lines [split $v_norm "\n"]
                             
                             if {[llength $v_lines] == 1} {
-                                append result "${k_out} : \"[str escape $v]\",\n"
+                                append result "${k_out} : \"[str escape $v_str]\",\n"
                             } else {
                                 set first_val "[str escape [lindex $v_lines 0]]"
                                 
@@ -326,17 +451,23 @@ namespace eval ::log {
                     } elseif {$sub_type eq "empty"} {
                         append result "${indent}\"\"${ptr_suffix},\n"
                     } else {
+                        switch -- $sub_type {
+                            "object"    { set item_str [_info_obj $item] }
+                            "bytearray" { set item_str [_info_bytearray $item] }
+                            default     { set item_str $item }
+                        }
+
                         # ============ 列表项标量分支 ============
                         if {$style ne "tree"} {
                             # JSON 模式
-                            append result "${indent}\"[str escape $item]\"${ptr_suffix},\n"
+                            append result "${indent}\"[str escape $item_str]\"${ptr_suffix},\n"
                         } else {
                             # Tree 模式
-                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $item]
+                            set v_norm [string map {"\r\n" "\n" "\r" "\n"} $item_str]
                             set v_lines [split $v_norm "\n"]
                             
                             if {[llength $v_lines] == 1} {
-                                append result "${indent}\"[str escape $item]\"${ptr_suffix},\n"
+                                append result "${indent}\"[str escape $item_str]\"${ptr_suffix},\n"
                             } else {
                                 set first_val "[str escape [lindex $v_lines 0]]"
                                 # List 的对齐基准：左侧的 indent + 开引号(1个字符)
