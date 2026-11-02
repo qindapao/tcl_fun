@@ -18,6 +18,11 @@ TCL_VERSION="tcl9.1.0"
 TK_VERSION="tk9.1.0"
 PREFIX="/opt/tcl9"
 
+TARGET_ENV_PARAMS=(
+    "--build=x86_64-w64-mingw32"
+    "--host=x86_64-w64-mingw32"
+)
+
 clean ()
 {
     rm -rf "$PREFIX"
@@ -29,7 +34,9 @@ build_tcl9 ()
     tar xzvf "${TCL_VERSION}-src.tar.gz"
     cd "${TCL_VERSION}/"
     cd win/
-    ./configure --prefix="$PREFIX" --enable-64bit
+    ./configure --prefix="$PREFIX" \
+                --enable-64bit \
+                "${TARGET_ENV_PARAMS[@]}"
     make
     make install
 
@@ -47,7 +54,8 @@ build_tk9 ()
     ./configure --prefix="$PREFIX" \
                 --with-tcl=../../${TCL_VERSION}/win \
                 --enable-64bit \
-                --enable-threads
+                --enable-threads \
+                "${TARGET_ENV_PARAMS[@]}"
     make
     make install
 }
@@ -60,7 +68,9 @@ install_tcllib ()
     rm -rf config.cache
 
     # 明确告诉它使用哪个 tclsh，这样它会自动识别所有路径
-    ./configure --prefix="$PREFIX" --with-tclsh="$PREFIX/bin/tclsh91.exe"
+    ./configure --prefix="$PREFIX" \
+                --with-tclsh="$PREFIX/bin/tclsh91.exe" \
+                "${TARGET_ENV_PARAMS[@]}"
 
     # 执行安装
     # 这一步会调用它内部的 sak.tcl（Tcllib 的专属管家），能正确处理路径
@@ -78,7 +88,8 @@ install_tklib ()
 
     # 同样通过 configure 指定路径
     ./configure --prefix="$PREFIX" \
-                --with-tclsh="$PREFIX/bin/tclsh91.exe"
+                --with-tclsh="$PREFIX/bin/tclsh91.exe" \
+                "${TARGET_ENV_PARAMS[@]}"
 
     # 因为 Tklib 绝大多数是纯 Tcl/Tk 代码，直接装 library 即可
     make install-libraries
@@ -89,7 +100,11 @@ install_rl_json ()
     # 1. 进入你的源码存放目录并解压
     cd "$BASE_DIR"
     local rl_json_file_name
-    rl_json_file_name=$(ls -l | grep "rl_json" | grep "tar.gz" | awk '{print $NF}' | awk -F ".tar.gz" '{print $1}')
+    rl_json_file_name=$(ls -l |
+                        grep "rl_json" |
+                        grep "tar.gz" |
+                        awk '{print $NF}' |
+                        awk -F ".tar.gz" '{print $1}')
     tar xzvf "${rl_json_file_name}.tar.gz"
 
     # 2. 核心：必须进入解压后的【根目录】，千万不要进 win/ 目录
@@ -99,7 +114,8 @@ install_rl_json ()
     ./configure --prefix="$PREFIX" \
                 --with-tcl=../${TCL_VERSION}/win \
                 --enable-64bit \
-                --enable-threads
+                --enable-threads \
+                "${TARGET_ENV_PARAMS[@]}"
 
     # 配置完成后需要給代码打上 ucrt64专用的补丁才行
     #   teabase/names.c 开头加上下面这样的宏定义
@@ -168,5 +184,6 @@ install_tcllib &&
 build_tk9 &&
 install_tklib &&
 install_rl_json &&
-mklink_ucrt64
+mklink_ucrt64 &&
+check_all
 
