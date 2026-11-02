@@ -384,7 +384,7 @@ namespace eval ::sys {
         # if {[info object isa object $data]} { return "object" }
         switch -regexp -- $rep {
             {value is a (pure )?bytearray}                  { return "bytearray" }
-            {value is a cmdname}                            { return "object" }
+            {value is a (pure )?cmdname}                    { return "object" }
             {value is a (pure )?(string|int|bignum|double)} { return "string" }
             {value is a dict}                       {
                 # 这里的注释是安全的，因为它在动作体内部

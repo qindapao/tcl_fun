@@ -208,7 +208,18 @@ namespace eval ::log {
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $data $type\
                     $next_level $indent_width $show_ptr $style]\n${mark_right}"
             }
-            "object"    { return [_format_key [_info_obj $data] $indent $root_ptr_suffix $style] }
+            "object"    {
+                set obj_dict [_info_obj $data $show_ptr]
+
+                if {$style eq "tree"} {
+                    set mark_left {=>} ; set mark_right ""
+                } else {
+                    set mark_left \{   ; set mark_right "${indent}\}"
+                }
+
+                return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $obj_dict dict\
+                    $next_level $indent_width $show_ptr $style]\n${mark_right}"
+            }
             "bytearray" { return [_format_key [_info_bytearray $data] $indent $root_ptr_suffix $style] }
             default     { return [_format_key $data $indent $root_ptr_suffix $style] }
         }
@@ -302,9 +313,11 @@ namespace eval ::log {
         if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $obj] }
 
         # 【核心防线】利用字符串拼接强制退化为 pure string，绝不能保留 cmdName 内部表示
-        dict set obj_dict object       "${obj}${ptr_suffix}"
-        dict set obj_dict class        "$cls"
-        dict set obj_dict superclasses "$supers"
+        # $cls $supers 本身就是对象
+        puts "now obj ----- ${obj} ------"
+        dict set obj_dict object       "<${obj}${ptr_suffix}>"
+        dict set obj_dict class        "<$cls>"
+        dict set obj_dict superclasses "<$supers>"
 
         # 提取对象变量，直接构建 vars 字典
         set vars_dict [dict create]
@@ -400,16 +413,25 @@ namespace eval ::log {
                     # 统一通过 _format_key 获取格式化好的 Key（自动识别单双行）
                     set k_out [_format_key $k $indent $ptr_suffix $style]
 
-                    if {$sub_type eq "dict" || $sub_type eq "list"} {
+                    if {$sub_type eq "dict" || $sub_type eq "list" || $sub_type eq "object"} {
                         lassign [list "" ""] mark_left mark_right
                         switch -- "${sub_type}_${style}" {
                             "dict_json" { set mark_left ": \{" ; set mark_right "$indent\},\n" }
                             "dict_tree" { set mark_left "=>" }
+                            "object_json" { set mark_left ": \{" ; set mark_right "$indent\},\n" }
+                            "object_tree" { set mark_left "=>" }
                             "list_json" { set mark_left ": \[" ; set mark_right "$indent\],\n" }
                             "list_tree" { set mark_left "=:" }
                         }
                         append result "${k_out} $mark_left\n"
-                        append result "[_pdict $v $sub_type $next_level $indent_width $show_ptr $style]\n"
+
+                        if {$sub_type eq "object"} {
+                            set obj_dict [_info_obj $v $show_ptr]
+                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style]\n"
+                        } else {
+                            append result "[_pdict $v $sub_type $next_level $indent_width $show_ptr $style]\n"
+                        }
+
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
                         append result "${k_out} : \"\",\n"
@@ -419,7 +441,6 @@ namespace eval ::log {
                         append result "${k_out} : \[\],\n"
                     } else {
                         switch -- $sub_type {
-                            "object"    { set v_str [_info_obj $v] }
                             "bytearray" { set v_str [_info_bytearray $v] }
                             default     { set v_str $v }
                         }
@@ -465,16 +486,23 @@ namespace eval ::log {
                     set sub_type [sys get_type $item]
                     if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $item] }
 
-                    if {$sub_type eq "dict" || $sub_type eq "list"} {
+                    if {$sub_type eq "dict" || $sub_type eq "list" || $sub_type eq "object"} {
                         lassign [list "" ""] mark_left mark_right
                         switch -- "${sub_type}_${style}" {
                             "dict_json" { set mark_left \{ ; set mark_right "$indent\},\n" }
                             "dict_tree" { set mark_left "=>" }
+                            "object_json" { set mark_left \{ ; set mark_right "$indent\},\n" }
+                            "object_tree" { set mark_left "=>" }
                             "list_json" { set mark_left \[ ; set mark_right "$indent\],\n" }
                             "list_tree" { set mark_left "=:" }
                         }
                         append result "${indent}$mark_left${ptr_suffix}\n"
-                        append result "[_pdict $item $sub_type $next_level $indent_width $show_ptr $style]\n"
+                        if {$sub_type eq "object"} {
+                            set obj_dict [_info_obj $item $show_ptr]
+                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style]\n"
+                        } else {
+                            append result "[_pdict $item $sub_type $next_level $indent_width $show_ptr $style]\n"
+                        }
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
                         append result "${indent}\"\"${ptr_suffix},\n"
@@ -484,7 +512,6 @@ namespace eval ::log {
                         append result "${indent}\[\]${ptr_suffix},\n"
                     } else {
                         switch -- $sub_type {
-                            "object"    { set item_str [_info_obj $item] }
                             "bytearray" { set item_str [_info_bytearray $item] }
                             default     { set item_str $item }
                         }
