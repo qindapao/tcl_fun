@@ -281,39 +281,45 @@ namespace eval ::log {
         return $preview
     }
 
-    # @brief [Private] TclOO 对象内省，返回纯文本信息
-    # @details 输出对象的类、直接父类、字符串表示以及对象变量及当前值，不涉及方法。
-    #          不带缩进、不带指针后缀、不区分 style，由调用方负责排版。
+    # @brief [Private] TclOO 对象内省，返回纯字典结构（暂不防环）
+    # @details 输出对象的类、父类以及变量。所有元数据强制退化为纯字符串，防止引发二次解析。
     # @param[in] obj  TclOO 对象句柄（命令名）
-    # @return string  纯文本对象信息
-    proc _info_obj {obj} {
-        set cls [::info object class $obj]
-        set supers [::info class superclasses $cls]
-        set var_names [lsort [::info object vars $obj]]
-        set ns [::info object namespace $obj]
+    # @return dict   标准的扁平化字典对象
+    proc _info_obj {obj {show_ptr 0}} {
+        # 基础信息捕获，防止对象已销毁导致后续直接崩溃
+        if {[catch {
+            set cls [::info object class $obj]
+            set supers [::info class superclasses $cls]
+            set var_names [lsort [::info object vars $obj]]
+            set ns [::info object namespace $obj]
+        } err]} {
+            return [dict create "object" "$obj" "error" "$err"]
+        }
 
-        set props {}
+        set obj_dict [dict create]
+
+        set ptr_suffix ""
+        if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $obj] }
+
+        # 【核心防线】利用字符串拼接强制退化为 pure string，绝不能保留 cmdName 内部表示
+        dict set obj_dict object       "${obj}${ptr_suffix}"
+        dict set obj_dict class        "$cls"
+        dict set obj_dict superclasses "$supers"
+
+        # 提取对象变量，直接构建 vars 字典
+        set vars_dict [dict create]
         foreach vname $var_names {
             if {[catch {set ${ns}::${vname}} vval]} {
-                set vval "<无法读取>"
+                dict set vars_dict $vname "<无法读取>"
+            } else {
+                dict set vars_dict $vname $vval
             }
-            lappend props $vname $vval
         }
 
-        set out "object $obj\n"
-        append out "    class: $cls\n"
-        append out "    superclasses: $supers\n"
+        # 将变量字典挂载到主字典上
+        dict set obj_dict vars $vars_dict
 
-        if {[llength $props] == 0} {
-            append out "    vars: <none>"
-        } else {
-            append out "    vars:\n"
-            foreach {k v} $props {
-                append out "        $k = $v\n"
-            }
-            set out [string trimright $out "\n"]
-        }
-        return $out
+        return $obj_dict
     }
 
     # @brief [Private] 键名格式化引擎（严格区分 JSON 与 Tree 模式）
