@@ -6,14 +6,16 @@
 # 编译前确认下编译机中的GLIBC的版本，建议使用 ：`GentOS7/RHEL 7` 的 `2.17`，
 #   这样编译出来的兼容性才最好。
 
-BUILD_VERSION=1.000
+BUILD_VERSION=1.001
 BASE_DIR=$(pwd)
-TCL_VERSION="tcl9.0.3"
-TK_VERSION="tk9.0.3"
+TCL_MAIN_VER="9.1"
+TCL_VERSION="tcl${TCL_MAIN_VER}.0"
+TK_VERSION="tk${TCL_MAIN_VER}.0"
 PREFIX="/opt/tcl9"
 TOOL_TCL="/opt/tmptcl9"
-TOOL_TCL_BIN="${TOOL_TCL}/bin/tclsh9.0"
+TOOL_TCL_BIN="${TOOL_TCL}/bin/tclsh${TCL_MAIN_VER}"
 CROSS_CC="aarch64-linux-gnu-gcc"
+RL_JSON_DIR="rl_json-v0.17.8"
 
 build_tcl9 ()
 {
@@ -71,8 +73,8 @@ build_tcl9 ()
 
     # 手动拷贝库目录
     cd "$BASE_DIR"
-    mkdir -p "${PREFIX}/lib/tcl9.0"
-    cp -rf ${TCL_VERSION}/library/* "${PREFIX}/lib/tcl9.0/"
+    mkdir -p "${PREFIX}/lib/tcl${TCL_MAIN_VER}"
+    cp -rf ${TCL_VERSION}/library/* "${PREFIX}/lib/tcl${TCL_MAIN_VER}/"
 }
 
 # 必须要先在编译机上面安装一个X86的工具tcl
@@ -85,7 +87,10 @@ build_tcl9_x86 ()
     tar xzvf "${TCL_VERSION}-src.tar.gz"
     cd "${TCL_VERSION}/unix"
     # Linux 下建议加上 --enable-shared
-    ./configure --prefix=$TOOL_TCL --enable-64bit --enable-threads --enable-shared
+    ./configure --prefix=$TOOL_TCL \
+                --enable-64bit \
+                --enable-threads \
+                --enable-shared
     make -j$(nproc)
     make install
 }
@@ -101,7 +106,7 @@ install_tcllib ()
     # 重点改进：加上 --with-tcl 指向你刚编好的 ARM 版库目录
     # 这样工具人 tclsh 运行安装程序时，知道要把索引写到哪
     ./configure --prefix="$PREFIX" \
-                --with-tclsh="${TOOL_TCL}/bin/tclsh9.0" \
+                --with-tclsh="$TOOL_TCL_BIN" \
                 --with-tcl="$PREFIX/lib"
     
     # 执行安装
@@ -139,7 +144,7 @@ install_tklib ()
     cd tklib-0.9/
     # 增加 --with-tk 路径，防止它去系统路径乱找
     ./configure --prefix=$PREFIX \
-                --with-tclsh="${TOOL_TCL}/bin/tclsh9.0" \
+                --with-tclsh="$TOOL_TCL_BIN" \
                 --with-tcl="$PREFIX/lib" \
                 --with-tk="$PREFIX/lib"
     make install-libraries
@@ -148,9 +153,9 @@ install_tklib ()
 install_rl_json ()
 {
     cd "$BASE_DIR"
-    if [ -d "rl_json-v0.17.4" ]; then rm -rf rl_json-v0.17.4; fi
-    tar xzvf rl_json-v0.17.4.tar.gz
-    cd rl_json-v0.17.4/
+    if [ -d "$RL_JSON_DIR" ]; then rm -rf "$RL_JSON_DIR"; fi
+    tar xzvf ${RL_JSON_DIR}.tar.gz
+    cd ${RL_JSON_DIR}/
 
     # 因为交叉编译下检测必错，所以直接用 sed 无脑改为 0
     sed -i 's/GETBYTES_SHIM=1/GETBYTES_SHIM=0/g' configure
@@ -190,8 +195,8 @@ after_build ()
     cd "$BASE_DIR"
     # -C 后面跟着要进入的目录
     # 最后的 . 代表打包该目录下的所有内容
-    aarch64-linux-gnu-strip $PREFIX/bin/tclsh9.0
-    aarch64-linux-gnu-strip $PREFIX/lib/libtcl9.0.so
+    aarch64-linux-gnu-strip $PREFIX/bin/tclsh${TCL_MAIN_VER}
+    aarch64-linux-gnu-strip $PREFIX/lib/libtcl${TCL_MAIN_VER}.so
     tar -czvf "$BASE_DIR/tcl9.tar.gz" -C "$PREFIX" .
     sync
     sleep 1

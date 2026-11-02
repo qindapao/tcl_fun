@@ -50,8 +50,8 @@ if [[ $? -eq 0 ]] ; then
     printf '>>> 安装完成！位置: %s\n' "$TARGET_DIR"
     
     # 这里要创建一个软链接 -f 作用是强制覆盖，防止第二次执行报错
-    "${LN_CMD[@]}" -sf "${TARGET_DIR}/bin/tclsh9.0" "${TARGET_DIR}/bin/tclsh9"
-    "${LN_CMD[@]}" -sf "${TARGET_DIR}/bin/wish9.0" "${TARGET_DIR}/bin/wish9"
+    "${LN_CMD[@]}" -sf "${TARGET_DIR}/bin/tclsh9.1" "${TARGET_DIR}/bin/tclsh9"
+    "${LN_CMD[@]}" -sf "${TARGET_DIR}/bin/wish9.1" "${TARGET_DIR}/bin/wish9"
 else
     printf '>>> 安装过程中出现错误！\n'
     exit 1

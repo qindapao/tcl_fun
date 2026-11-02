@@ -13,6 +13,7 @@
 # Tcl最强的JSON扩展 rl_json
 #   https://github.com/RubyLane/rl_json
 
+BUILD_VERSION=1.001
 BASE_DIR=$(pwd)
 TCL_VERSION="tcl9.1.0"
 TK_VERSION="tk9.1.0"

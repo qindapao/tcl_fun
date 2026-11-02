@@ -438,12 +438,12 @@ namespace eval ::log {
                     if {$sub_type eq "dict" || $sub_type eq "list" || $sub_type eq "object"} {
                         lassign [list "" ""] mark_left mark_right
                         switch -- "${sub_type}_${style}" {
-                            "dict_json" { set mark_left ": \{" ; set mark_right "$indent\},\n" }
-                            "dict_tree" { set mark_left "=>" }
-                            "object_json" { set mark_left ": \{" ; set mark_right "$indent\},\n" }
-                            "object_tree" { set mark_left "=>" }
-                            "list_json" { set mark_left ": \[" ; set mark_right "$indent\],\n" }
-                            "list_tree" { set mark_left "=:" }
+                            dict_json -
+                            object_json { set mark_left ": \{" ; set mark_right "$indent\},\n" }
+                            dict_tree -
+                            object_tree { set mark_left "=>" }
+                            list_json   { set mark_left ": \[" ; set mark_right "$indent\],\n" }
+                            list_tree   { set mark_left "=:" }
                         }
                         append result "${k_out} $mark_left\n"
 
@@ -512,12 +512,12 @@ namespace eval ::log {
                     if {$sub_type eq "dict" || $sub_type eq "list" || $sub_type eq "object"} {
                         lassign [list "" ""] mark_left mark_right
                         switch -- "${sub_type}_${style}" {
-                            "dict_json" { set mark_left \{ ; set mark_right "$indent\},\n" }
-                            "dict_tree" { set mark_left "=>" }
-                            "object_json" { set mark_left \{ ; set mark_right "$indent\},\n" }
-                            "object_tree" { set mark_left "=>" }
-                            "list_json" { set mark_left \[ ; set mark_right "$indent\],\n" }
-                            "list_tree" { set mark_left "=:" }
+                            dict_json -
+                            object_json { set mark_left \{ ; set mark_right "$indent\},\n" }
+                            dict_tree -
+                            object_tree { set mark_left "=>" }
+                            list_json   { set mark_left \[ ; set mark_right "$indent\],\n" }
+                            list_tree   { set mark_left "=:" }
                         }
                         append result "${indent}$mark_left${ptr_suffix}\n"
                         if {$sub_type eq "object"} {
