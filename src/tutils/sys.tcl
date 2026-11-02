@@ -354,10 +354,10 @@ namespace eval ::sys {
     #               为普通 string，丢失对象身份。
     #          2. 空值判定：$data eq "" 统一归 "empty"。注意该操作本身有副作用——
     #             会字符串化 bytearray、会降级 cmdName，因此必须排在上述敏感类型之后。
-    #             空字符串与空列表/空字典在内部表示上无法可靠区分，统一归 "empty"，
-    #             调用方若需区分，必须自行保留原始语义。
+    #             纯空字符串归 "empty"；若底层仍保留 dict / list 标签，则分别归 "empty_dict"
+    #             和 "empty_list"；调用方可根据这几种返回做更精细的业务区分。
     #          3. 内核标签直通车：对已标记为 dict / list 的复合结构做 C 语言级别快速放行，
-    #             空容器归 "empty"，非空容器归 "dict" / "list"。
+    #             空容器分别归 "empty_dict" / "empty_list"，非空容器归 "dict" / "list"。
     #          4. 混沌文本安全探测：仅对未打标签的原始字串做防污染隔离探测（catch 隔离），
     #             安全推导出潜在的字典或列表结构。
     #
@@ -368,36 +368,37 @@ namespace eval ::sys {
     # @param[in] data  需要进行内部类型探测的任意 Tcl 数据对象（支持原子标量与复杂嵌套容器）。
     #
     # @return string   返回该对象的业务抽象类型，枚举值如下：
-    #                  - "dict"      : 非空字典结构
-    #                  - "list"      : 非空列表结构
-    #                  - "empty"     : 空值（空字符串/空列表/空字典统一归此，调用方自解释）
-    #                  - "string"    : 非空原子标量（纯文字、数字、布林值等）
-    #                  - "object"    : TclOO 对象句柄（内部表示为 cmdName 时）
-    #                  - "bytearray" : 字节数组（二进制数据）
+    #                  - "dict"       : 非空字典结构
+    #                  - "list"       : 非空列表结构
+    #                  - "empty_dict" : 空字典结构（底层保留 dict 标签）
+    #                  - "empty_list" : 空列表结构（底层保留 list 标签）
+    #                  - "empty"      : 纯空字符串（无法判定为容器，统一归此，调用方自解释）
+    #                  - "string"     : 非空原子标量（纯文字、数字、布林值等）
+    #                  - "object"     : TclOO 对象句柄（内部表示为 cmdName 时）
+    #                  - "bytearray"  : 字节数组（二进制数据）
     proc get_type {data} {
         set rep [string tolower [tcl::unsupported::representation $data]]
-
-        if {[regexp {value is a (pure )?bytearray} $rep]}   { return "bytearray" }
-        if {[regexp {value is a cmdname} $rep]}             { return "object" }
-
-        # 空值：representation 不可信，统一归 empty，由调用方按业务语义解释
-        # 这个操作会生成 bytearray 的字符串表示，这是我们应该避免的
-        # 这个操作会导致 cmdName 退化成字符串
-        if {$data eq ""} { return "empty" }
 
         # 注释只能放在某个模式的执行体（body）内部，不能和模式混在一起
         # 官方的 api 会造成类型闪烁
         # if {[info object isa object $data]} { return "object" }
         switch -regexp -- $rep {
+            {value is a (pure )?bytearray}                  { return "bytearray" }
+            {value is a cmdname}                            { return "object" }
             {value is a (pure )?(string|int|bignum|double)} { return "string" }
             {value is a dict}                       {
                 # 这里的注释是安全的，因为它在动作体内部
-                return [expr {[dict size $data] == 0 ? "empty" : "dict"}]
+                return [expr {[dict size $data] == 0 ? "empty_dict" : "dict"}]
             }
             {value is a list}                       {
-                return [expr {[llength $data] == 0 ? "empty" : "list"}]
+                return [expr {[llength $data] == 0 ? "empty_list" : "list"}]
             }
         }
+
+        # 空值：representation 不可信，统一归 empty，由调用方按业务语义解释
+        # 这个操作会生成 bytearray 的字符串表示，这是我们应该避免的
+        # 这个操作会导致 cmdName 退化成字符串
+        if {$data eq ""} { return "empty" }
 
         # 混沌文本安全探测
         if {![catch {dict keys $data} dkeys] && [llength $dkeys] > 0} {

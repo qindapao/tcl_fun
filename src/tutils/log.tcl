@@ -152,14 +152,15 @@ namespace eval ::log {
     #          并在不破坏内部格式化缩进的前提下，精准捕捉、补齐最顶层根节点本身的 C 语言物理内存指标。
     #          顶层类型分派规则：
     #          - dict / list：递归进入 _pdict 展开嵌套结构。
+    #          - empty_dict / empty_list：直接输出标准的大括号 {} 和 中括号 [] 占位（严格区分空容器与纯空值）。
+    #          - empty：纯空字符串，直接输出 "" 占位。
     #          - object：经 _info_obj 拍平为纯文本（类、父类、变量及值），不递归展开对象属性。
     #          - bytearray：经 _info_bytearray 输出十六进制头部预览与魔数类型标注，绝不输出完整二进制。
-    #          - empty：直接输出空字符串占位。
     #          - 其他标量：经 _format_key 转义渲染。
     #          所有非容器类型均不触发原始对象的字符串化或类型降级（cmdName/bytearray 保持原内部表示）。
     # 
-    # @param[in] data         需要进行美化打印的 Tcl 数据对象。支持 dict、list、TclOO 对象、
-    #                         bytearray、empty 以及任意标量。
+    # @param[in] data         需要进行美化打印的 Tcl 数据对象。支持 dict、list、empty_dict、
+    #                         empty_list、empty、TclOO 对象、bytearray 以及任意标量。
     # @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥；
     #                         显式传入时跳过 sys get_type，可用于强制按指定类型渲染。
     # @param[in] indent_level 当前缩进层级。预设为 0（最外层）。
@@ -168,7 +169,14 @@ namespace eval ::log {
     # @param[in] style        打印格式，可选："json" "tree"，预设为："tree"
     # 
     # @return string          回传格式化后的 JSON-Like 精美排版文本。
-    proc pdict {data {type "auto"} {indent_level 0} {indent_width 4} {show_ptr 0} {style tree}} {
+    proc pdict {
+        data
+        {type "auto"}
+        {indent_level 0}
+        {indent_width 4}
+        {show_ptr 0}
+        {style tree}
+    } {
         if {$type eq "auto"} { set type [sys get_type $data] }
 
         set root_ptr_suffix ""
@@ -178,9 +186,9 @@ namespace eval ::log {
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
 
         switch -- $type {
-            "empty" {
-                return "${indent}\"\"${root_ptr_suffix}"
-            }
+            "empty_dict"    { return "${indent}{}${root_ptr_suffix}" }
+            "empty_list"    { return "${indent}\[\]${root_ptr_suffix}" }
+            "empty"         { return "${indent}\"\"${root_ptr_suffix}" }
             "dict" {
                 if {$style eq "tree"} {
                     set mark_left {=>} ; set mark_right ""
@@ -337,20 +345,24 @@ namespace eval ::log {
     }
 
     # @brief [Private] 数据结构美化打印核心递归引擎 (_pdict)
-    # @details 仅供顶层门面 pdict 调用的私有递归引擎，输入契约仅限 dict / list 两种容器类型。
-    #          非容器类型（empty / object / bytearray / 标量）一律由顶层 pdict 就地渲染拦截，
-    #          不会传入本函数；本函数内部递归时也只传入 dict / list。若误传其他类型，
-    #          switch 落空返回空串，以显式暴露契约违反，不做静默兜底。
+    # @details 仅供顶层门面 pdict 调用的私有递归引擎，输入契约的主类型为 dict / list。
+    #          在递归过程中，会对子项进行类型分派：
+    #          - dict / list：继续递归展开。
+    #          - empty：直接输出空字符串 "" 占位。
+    #          - empty_dict：直接输出标准大括号 {} 占位（严格区分空容器与纯空值）。
+    #          - empty_list：直接输出标准中括号 [] 占位。
+    #          - object：经 _info_obj 拍平为纯文本（类、父类、变量及值），不递归展开对象属性内部的
+    #            嵌套结构，避免无限递归与类型降级。
+    #          - bytearray：经 _info_bytearray 输出十六进制头部预览与魔数类型标注，只展示前 max_bytes
+    #            个字节，绝不输出完整原始二进制。
+    #          - 其他标量：直接输出字符串形式。
+    #          若误传主类型（非 dict / list），switch 落空返回空串，以显式暴露契约违反，不做静默兜底。
     #          利用 dict for / foreach 的原生有序性，深度递归、开箱并重构复杂嵌套结构。
     #          内置全局初始化缓冲，100% 杜绝幽灵指针泄漏。
     #          【JSON 模式】：严格单行转义，保留合法 RFC 8259 语义，绝对屏蔽内存指针后缀。
     #          【Tree 模式】：针对程序员肉眼 Debug 优化。无括号干扰，多行文本启用 \r\n 归一化处理。
     #          结合 textutil::wcswidth 动态计算全角字符（中文/Emoji）与内存指针的视觉宽度，
     #          实现多行键值下方竖线（|）的像素级精准左对齐。
-    #          【object】: 子项为 TclOO 对象时，经 _info_obj 拍平为纯文本（类、父类、变量及值），
-    #          不递归展开对象属性内部的嵌套结构，避免无限递归与类型降级。
-    #          【bytearray】: 子项为 bytearray 时，经 _info_bytearray 输出十六进制头部预览与魔数
-    #          类型标注，只展示前 max_bytes 个字节，绝不输出完整原始二进制。
     #
     # @param[in] data         当前子节点数据，必须是 dict 或 list（与 type 一致）。
     # @param[in] type         当前子节点类型，仅接受 "dict" 或 "list"。
@@ -360,7 +372,14 @@ namespace eval ::log {
     # @param[in] style        打印格式，可选："json" "tree"
     #
     # @return string          返回裁剪完尾部多余逗号后的当前层级格式化文本块。
-    proc _pdict {data type indent_level indent_width show_ptr style} {
+    proc _pdict {
+        data
+        type
+        indent_level
+        indent_width
+        show_ptr
+        style
+    } {
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
 
@@ -388,6 +407,10 @@ namespace eval ::log {
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
                         append result "${k_out} : \"\",\n"
+                    } elseif {$sub_type eq "empty_dict"} {
+                        append result "${k_out} : {},\n"
+                    } elseif {$sub_type eq "empty_list"} {
+                        append result "${k_out} : \[\],\n"
                     } else {
                         switch -- $sub_type {
                             "object"    { set v_str [_info_obj $v] }
@@ -449,6 +472,10 @@ namespace eval ::log {
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
                         append result "${indent}\"\"${ptr_suffix},\n"
+                    } elseif {$sub_type eq "empty_dict"} {
+                        append result "${indent}{}${ptr_suffix},\n"
+                    } elseif {$sub_type eq "empty_list"} {
+                        append result "${indent}\[\]${ptr_suffix},\n"
                     } else {
                         switch -- $sub_type {
                             "object"    { set item_str [_info_obj $item] }
