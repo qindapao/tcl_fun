@@ -154,7 +154,7 @@ namespace eval ::log {
     #          - dict / list：递归进入 _pdict 展开嵌套结构。
     #          - empty_dict / empty_list：直接输出标准的大括号 {} 和 中括号 [] 占位（严格区分空容器与纯空值）。
     #          - empty：纯空字符串，直接输出 "" 占位。
-    #          - object：经 _info_obj 拍平为纯文本（类、父类、变量及值），不递归展开对象属性。
+    #          - object：经 _info_obj 拍平为字典，并在防环列表加持下，继续递归展开其 vars 内的嵌套结构。
     #          - bytearray：经 _info_bytearray 输出十六进制头部预览与魔数类型标注，绝不输出完整二进制。
     #          - 其他标量：经 _format_key 转义渲染。
     #          所有非容器类型均不触发原始对象的字符串化或类型降级（cmdName/bytearray 保持原内部表示）。
@@ -185,6 +185,7 @@ namespace eval ::log {
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
 
+        set visited_obj [list]
         switch -- $type {
             "empty_dict"    { return "${indent}{}${root_ptr_suffix}" }
             "empty_list"    { return "${indent}\[\]${root_ptr_suffix}" }
@@ -197,7 +198,7 @@ namespace eval ::log {
                 }
 
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $data $type\
-                    $next_level $indent_width $show_ptr $style]\n${mark_right}"
+                    $next_level $indent_width $show_ptr $style $visited_obj]\n${mark_right}"
             }
             "list" {
                 if {$style eq "tree"} {
@@ -206,10 +207,11 @@ namespace eval ::log {
                     set mark_left \[   ; set mark_right "${indent}\]"
                 }
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $data $type\
-                    $next_level $indent_width $show_ptr $style]\n${mark_right}"
+                    $next_level $indent_width $show_ptr $style $visited_obj]\n${mark_right}"
             }
             "object"    {
-                set obj_dict [_info_obj $data $show_ptr]
+                set obj_dict [_info_obj $data $show_ptr $visited_obj]
+                lappend visited_obj $data
 
                 if {$style eq "tree"} {
                     set mark_left {=>} ; set mark_right ""
@@ -218,7 +220,7 @@ namespace eval ::log {
                 }
 
                 return "${indent}${mark_left}${root_ptr_suffix}\n[_pdict $obj_dict dict\
-                    $next_level $indent_width $show_ptr $style]\n${mark_right}"
+                    $next_level $indent_width $show_ptr $style $visited_obj]\n${mark_right}"
             }
             "bytearray" { return [_format_key [_info_bytearray $data] $indent $root_ptr_suffix $style] }
             default     { return [_format_key $data $indent $root_ptr_suffix $style] }
@@ -292,29 +294,45 @@ namespace eval ::log {
         return $preview
     }
 
-    # @brief [Private] TclOO 对象内省，返回纯字典结构（暂不防环）
+    # @brief [Private] TclOO 对象内省，返回纯字典结构
     # @details 输出对象的类、父类以及变量。所有元数据强制退化为纯字符串，防止引发二次解析。
-    # @param[in] obj  TclOO 对象句柄（命令名）
-    # @return dict   标准的扁平化字典对象
-    proc _info_obj {obj {show_ptr 0}} {
-        # 基础信息捕获，防止对象已销毁导致后续直接崩溃
+    #          通过传递 visited_obj 列表，彻底杜绝对象互相引用导致的无限递归爆栈。
+    #          若传入的是普通命令（如 puts、info）或已销毁的无效对象，
+    #          底层 catch 会捕获错误并返回带有 <not a TclOO object> 标记的兜底字典。
+    # @param[in] obj         TclOO 对象句柄（或伪装成 cmdName 的普通命令）
+    # @param[in] show_ptr    是否显示内存指针
+    # @param[in] visited_obj 已经访问过的对象句柄列表，用于防环
+    # @return dict           标准的扁平化字典对象
+    proc _info_obj {obj {show_ptr 0} {visited_obj {}}} {
+        # 如果当前对象已经在递归链上，立刻截断！
+        if {$obj in $visited_obj} {
+            return [dict create \
+                "object" "<$obj>" \
+                "status" "<circular reference>"
+            ]
+        }
+
+        # 基础信息捕获，防止对象已销毁
         if {[catch {
             set cls [::info object class $obj]
             set supers [::info class superclasses $cls]
             set var_names [lsort [::info object vars $obj]]
             set ns [::info object namespace $obj]
         } err]} {
-            return [dict create "object" "$obj" "error" "$err"]
+            # 如果报错，说明它不是纯正的 TclOO 对象（可能是 puts/info 等普通命令）
+            return [dict create \
+                "object" "<$obj>" \
+                "note"   "<not a TclOO object>" \
+                "error"  "$err"
+            ]
         }
 
         set obj_dict [dict create]
-
         set ptr_suffix ""
         if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $obj] }
 
-        # 【核心防线】利用字符串拼接强制退化为 pure string，绝不能保留 cmdName 内部表示
+        # 利用字符串拼接强制退化为 pure string，绝不能保留 cmdName 内部表示
         # $cls $supers 本身就是对象
-        puts "now obj ----- ${obj} ------"
         dict set obj_dict object       "<${obj}${ptr_suffix}>"
         dict set obj_dict class        "<$cls>"
         dict set obj_dict superclasses "<$supers>"
@@ -370,8 +388,8 @@ namespace eval ::log {
     #          - empty：直接输出空字符串 "" 占位。
     #          - empty_dict：直接输出标准大括号 {} 占位（严格区分空容器与纯空值）。
     #          - empty_list：直接输出标准中括号 [] 占位。
-    #          - object：经 _info_obj 拍平为纯文本（类、父类、变量及值），不递归展开对象属性内部的
-    #            嵌套结构，避免无限递归与类型降级。
+    #          - object：经 _info_obj 拍平为字典后，继续递归展开其 vars 内的嵌套结构。
+    #            通过 visited_obj 列表进行防环检测，避免对象互相引用导致无限递归。
     #          - bytearray：经 _info_bytearray 输出十六进制头部预览与魔数类型标注，只展示前 max_bytes
     #            个字节，绝不输出完整原始二进制。
     #          - 其他标量：直接输出字符串形式。
@@ -389,6 +407,9 @@ namespace eval ::log {
     # @param[in] indent_width 缩进空格宽度。
     # @param[in] show_ptr     是否显示内存指标后缀（1=开启，0=关闭）。
     # @param[in] style        打印格式，可选："json" "tree"
+    # @param[in] visited_obj  已访问的对象句柄列表，用于递归防环。
+    #                         每遇到一个对象，使用 linsert 生成独立的 child_visited 传给子级，
+    #                         绝不污染当前栈帧，保证平级重复引用不被误判为环。
     #
     # @return string          返回裁剪完尾部多余逗号后的当前层级格式化文本块。
     proc _pdict {
@@ -398,6 +419,7 @@ namespace eval ::log {
         indent_width
         show_ptr
         style
+        visited_obj
     } {
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
@@ -426,10 +448,11 @@ namespace eval ::log {
                         append result "${k_out} $mark_left\n"
 
                         if {$sub_type eq "object"} {
-                            set obj_dict [_info_obj $v $show_ptr]
-                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style]\n"
+                            set obj_dict [_info_obj $v $show_ptr $visited_obj]
+                            set child_visited [linsert $visited_obj end $v]
+                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style $child_visited]\n"
                         } else {
-                            append result "[_pdict $v $sub_type $next_level $indent_width $show_ptr $style]\n"
+                            append result "[_pdict $v $sub_type $next_level $indent_width $show_ptr $style $visited_obj]\n"
                         }
 
                         append result $mark_right
@@ -498,10 +521,11 @@ namespace eval ::log {
                         }
                         append result "${indent}$mark_left${ptr_suffix}\n"
                         if {$sub_type eq "object"} {
-                            set obj_dict [_info_obj $item $show_ptr]
-                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style]\n"
+                            set obj_dict [_info_obj $item $show_ptr $visited_obj]
+                            set child_visited [linsert $visited_obj end $item]
+                            append result "[_pdict $obj_dict dict $next_level $indent_width $show_ptr $style $child_visited]\n"
                         } else {
-                            append result "[_pdict $item $sub_type $next_level $indent_width $show_ptr $style]\n"
+                            append result "[_pdict $item $sub_type $next_level $indent_width $show_ptr $style $visited_obj]\n"
                         }
                         append result $mark_right
                     } elseif {$sub_type eq "empty"} {
