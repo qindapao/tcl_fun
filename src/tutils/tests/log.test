@@ -22,7 +22,7 @@ test log-init-1.1 {测试日志初始化} -body {
 } -result 1
 
 test log-close-1.2 {测试日志关闭} -body {
-    log close_file
+    log close-file
     set fp [dict get $::log::db file_handle]
     expr {$fp eq ""}
 } -result 1
@@ -39,7 +39,7 @@ test log-pdict-1.3 {测试 dict 转纯文本排版} -setup {
     log info "\n$json"
     string match {*"key1" : "val1"*} $json
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.4 {测试 list 转纯文本排版} -setup {
@@ -50,7 +50,7 @@ test log-pdict-1.4 {测试 list 转纯文本排版} -setup {
     log info "\n$json"
     string match {*"a",*} $json
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -74,7 +74,7 @@ test log-pdict-1.5 {测试复杂嵌套：字典里嵌套列表} -setup {
         [string match {*"core"*} $result]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.6 {测试复杂嵌套：列表中嵌套字典} -setup {
@@ -93,7 +93,7 @@ test log-pdict-1.6 {测试复杂嵌套：列表中嵌套字典} -setup {
         [string match {*"name" : "Jack",*} $result]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.7 {测试极端嵌套：多层深度树状套娃} -setup {
@@ -119,7 +119,7 @@ test log-pdict-1.7 {测试极端嵌套：多层深度树状套娃} -setup {
         [string match {*\\\"final_value\\\"*} $result]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -135,7 +135,7 @@ test log-trace-1.8 {测试过程调用跟踪栈与动态行号标签（针对 WA
     log init $trace_file INFO
 } -body {
     ::func_layer_A "触发恶意深层报错"
-    log close_file
+    log close-file
     set fp [open $trace_file r]
     fconfigure $fp -encoding utf-8
     set log_content [read $fp]
@@ -148,7 +148,7 @@ test log-trace-1.8 {测试过程调用跟踪栈与动态行号标签（针对 WA
     }
 } -cleanup {
     catch {file delete -force $trace_file}
-    log close_file
+    log close-file
 } -result 1
 
 test log-trace-1.9 {测试极端无文件背景下的匿名调用（验证并拦截隐藏空行）} -setup {
@@ -156,7 +156,7 @@ test log-trace-1.9 {测试极端无文件背景下的匿名调用（验证并拦
     log init $trace_file INFO
 } -body {
     apply {{msg} { log error $msg }} "匿名炸弹"
-    log close_file
+    log close-file
     set fp [open $trace_file r]
     fconfigure $fp -encoding utf-8
     set log_content [read $fp]
@@ -168,7 +168,7 @@ test log-trace-1.9 {测试极端无文件背景下的匿名调用（验证并拦
         ![string match {*\n\n*} [string trim $log_content]]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -216,7 +216,7 @@ test log-pdict-1.10 {测试符号引用：顶层键的值指向另一个键名�
     log error "\n[log pdict $top_dict1 auto 0 4 0 json]"
     log error "\n[log pdict $top_dict2 auto 0 4 0 json]"
     
-    log close_file
+    log close-file
     
     set fp [open $loop_file1 r]
     fconfigure $fp -encoding utf-8
@@ -229,7 +229,7 @@ test log-pdict-1.10 {测试符号引用：顶层键的值指向另一个键名�
     }
 } -cleanup {
     catch {file delete -force $loop_file1}
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.11 {测试符号引用：多层深度符号链的垂直缩进规范性 (A -> B -> C)} -setup {
@@ -247,7 +247,7 @@ test log-pdict-1.11 {测试符号引用：多层深度符号链的垂直缩进�
     set result [log pdict $normal_tree auto 0 4 0 json]
     log error "\n$result"
     
-    log close_file
+    log close-file
     
     set fp [open $norm_file r]
     fconfigure $fp -encoding utf-8
@@ -261,7 +261,7 @@ test log-pdict-1.11 {测试符号引用：多层深度符号链的垂直缩进�
     }
 } -cleanup {
     catch {file delete -force $norm_file}
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.12 {测试树状样式：验证 tree 模式下业务数据末尾自带的逗号绝对不被误伤抹除} -setup {
@@ -278,7 +278,7 @@ test log-pdict-1.12 {测试树状样式：验证 tree 模式下业务数据末�
     set result [log pdict $comma_data "auto" 0 4 0 "tree"]
     log info "\n$result"
     
-    log close_file
+    log close-file
     
     set fp [open $tree_comma_file r]
     fconfigure $fp -encoding utf-8
@@ -292,7 +292,7 @@ test log-pdict-1.12 {测试树状样式：验证 tree 模式下业务数据末�
     }
 } -cleanup {
     catch {file delete -force $tree_comma_file}
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -325,7 +325,7 @@ test log-pdict-1.13 {测试 TclOO 对象：类、父类、变量及值均被打�
 } -cleanup {
     catch { $obj destroy }
     catch { oo::class delete TutilsTestNode }
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -343,7 +343,7 @@ test log-pdict-1.14 {测试 bytearray：只输出头部十六进制，不输出�
         [string match {*...*} $result]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.15 {测试 bytearray：字节 0x00 被正确编码为 "00"} -setup {
@@ -354,7 +354,7 @@ test log-pdict-1.15 {测试 bytearray：字节 0x00 被正确编码为 "00"} -se
     log info "\n$result"
     string match {*48 00 65 6c 6c 6f*} $result
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.16 {测试 bytearray：魔数识别 PNG} -setup {
@@ -365,7 +365,7 @@ test log-pdict-1.16 {测试 bytearray：魔数识别 PNG} -setup {
     log info "\n$result"
     string match {*type=PNG image*} $result
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.17 {测试 bytearray：魔数识别 ZIP} -setup {
@@ -376,7 +376,7 @@ test log-pdict-1.17 {测试 bytearray：魔数识别 ZIP} -setup {
     log info "\n$result"
     string match {*type=ZIP archive*} $result
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.18 {测试 bytearray：未知数据不标注 type} -setup {
@@ -390,7 +390,7 @@ test log-pdict-1.18 {测试 bytearray：未知数据不标注 type} -setup {
         ![string match {*type=*} $result]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 test log-pdict-1.19 {测试 bytearray：内部表示不因 pdict 发生字符串化} -setup {
@@ -407,17 +407,17 @@ test log-pdict-1.19 {测试 bytearray：内部表示不因 pdict 发生字符串
         [string match {*no string representation*} $after]
     }
 } -cleanup {
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
-# 8. get_type 顺序正确性（敏感类型先于 eq ""）
+# 8. get-type 顺序正确性（敏感类型先于 eq ""）
 # ======================================================================
 
-test get-type-1.20 {测试 get_type：bytearray 在 eq "" 之前被识别，不触发字符串化} -body {
+test get-type-1.20 {测试 get-type：bytearray 在 eq "" 之前被识别，不触发字符串化} -body {
     set ba [binary format H* "48656c6c6f005c0a1b"]
     set before [tcl::unsupported::representation $ba]
-    set t [sys get_type $ba]
+    set t [sys get-type $ba]
     set after [tcl::unsupported::representation $ba]
     expr {
         $t eq "bytearray" && \
@@ -426,7 +426,7 @@ test get-type-1.20 {测试 get_type：bytearray 在 eq "" 之前被识别，不�
     }
 } -result 1
 
-test get-type-1.21 {测试 get_type：cmdName 在 eq "" 之前被识别，不降级} -setup {
+test get-type-1.21 {测试 get-type：cmdName 在 eq "" 之前被识别，不降级} -setup {
     oo::class create TutilsTestNode3 {
         variable x
         constructor {} { set x 1 }
@@ -435,7 +435,7 @@ test get-type-1.21 {测试 get_type：cmdName 在 eq "" 之前被识别，不降
     catch { info object class $obj }
 } -body {
     set before [tcl::unsupported::representation $obj]
-    set t [sys get_type $obj]
+    set t [sys get-type $obj]
     set after [tcl::unsupported::representation $obj]
     expr {
         $t eq "object" && \
@@ -477,7 +477,7 @@ test log-pdict-1.22 {测试混合嵌套：dict/list 中同时挂载对象与 byt
 } -cleanup {
     catch { $obj destroy }
     catch { oo::class delete TutilsTestNode4 }
-    log close_file
+    log close-file
 } -result 1
 
 # ======================================================================
@@ -556,11 +556,11 @@ test log-pdict-1.23 {终极压力测试：平级重复、死循环、未唤醒�
     catch { oo::class delete CycleB }
     catch { oo::class delete Root }
     # 【核心修复】必须先关闭文件，再删除文件，否则 Windows 文件句柄被占用删不掉
-    log close_file
+    log close-file
     catch {file delete -force $stress_file}
 } -result 1
 
-test log-pdict-1.24 {测试普通命令被 get_type 误判为 object 时的兜底打印} -setup {
+test log-pdict-1.24 {测试普通命令被 get-type 误判为 object 时的兜底打印} -setup {
     log init $test_log_file INFO
     
     # 1. 内置命令 puts（正确摸醒）
@@ -606,7 +606,7 @@ test log-pdict-1.24 {测试普通命令被 get_type 误判为 object 时的兜�
     }
 } -cleanup {
     catch { rename my_helper {} }
-    log close_file
+    log close-file
 } -result 1
 
 

@@ -25,7 +25,7 @@ namespace eval ::log {
     # @throws error        若无权限创建或文件路径非法，抛出 Tcl 标准异常。
     proc init {log_path {level "INFO"}} {
         variable db
-        close_file
+        close-file
         if {[catch {open $log_path a} fp]} {
             set full_path [file normalize $log_path]
             return -code error "\[log init\]unable to create or open log file at '$full_path' -> $fp"
@@ -40,12 +40,12 @@ namespace eval ::log {
         info "Log system initialization successful | level: [string toupper $level]"
     }
 
-    # * @brief 安全关闭日志文件 (close_file)
+    # * @brief 安全关闭日志文件 (close-file)
     # * @details 检查当前单例数据库中是否持有活跃的文件句柄，若有则进行安全释放并清空句柄。
     # *          内部使用 catch 隔离，确保即使文件被外部提前意外关闭，本函数也绝对不抛异常。
     # *
     # * @return void
-    proc close_file {} {
+    proc close-file {} {
         variable db
         set fp [dict get $db file_handle]
         if {$fp ne ""} {
@@ -114,9 +114,9 @@ namespace eval ::log {
         if {$level eq "WARN" || $level eq "ERROR"} {
             lassign [_get_call_trace] trace_block business_file business_line
             set label_suffix "\[$business_file:$business_line\]"
-            set now_time [sys date_prt "%Y-%m-%d %H:%M:%S.%Milli"]
+            set now_time [sys date-prt "%Y-%m-%d %H:%M:%S.%Milli"]
         } else {
-            set now_time [sys date_prt]
+            set now_time [sys date-prt]
             # INFO 和 DEBUG：不准加班！拒绝循环！直接空降单层狙击
             # 倒推 3 层 (-3) 刚好越过 _get_call_trace（此条不涉及）和 _write 自身，直击业务第一现场
             if {![catch {::info frame -2} frame_dict]} {
@@ -162,7 +162,7 @@ namespace eval ::log {
     # @param[in] data         需要进行美化打印的 Tcl 数据对象。支持 dict、list、empty_dict、
     #                         empty_list、empty、TclOO 对象、bytearray 以及任意标量。
     # @param[in] type         手动指定的当前层级类型。预设为 "auto" 触发自动内窥；
-    #                         显式传入时跳过 sys get_type，可用于强制按指定类型渲染。
+    #                         显式传入时跳过 sys get-type，可用于强制按指定类型渲染。
     # @param[in] indent_level 当前缩进层级。预设为 0（最外层）。
     # @param[in] indent_width 每一层级缩进的空格宽度。预设为 4。
     # @param[in] show_ptr     是否开启内存指标可视化后缀。预设为 0（不显示）。
@@ -177,10 +177,10 @@ namespace eval ::log {
         {show_ptr 0}
         {style tree}
     } {
-        if {$type eq "auto"} { set type [sys get_type $data] }
+        if {$type eq "auto"} { set type [sys get-type $data] }
 
         set root_ptr_suffix ""
-        if {$show_ptr} { set root_ptr_suffix [sys get_ptr_suffix $data] }
+        if {$show_ptr} { set root_ptr_suffix [sys get-ptr-suffix $data] }
 
         set next_level [expr {$indent_level + 1}]
         set indent [string repeat " " [expr {$indent_level * $indent_width}]]
@@ -329,7 +329,7 @@ namespace eval ::log {
 
         set obj_dict [dict create]
         set ptr_suffix ""
-        if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $obj] }
+        if {$show_ptr} { set ptr_suffix [sys get-ptr-suffix $obj] }
 
         # 利用字符串拼接强制退化为 pure string，绝不能保留 cmdName 内部表示
         # $cls $supers 本身就是对象
@@ -429,8 +429,8 @@ namespace eval ::log {
             "dict" {
                 set result ""
                 dict for {k v} $data {
-                    set sub_type [sys get_type $v]
-                    if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $v] }
+                    set sub_type [sys get-type $v]
+                    if {$show_ptr} { set ptr_suffix [sys get-ptr-suffix $v] }
 
                     # 统一通过 _format_key 获取格式化好的 Key（自动识别单双行）
                     set k_out [_format_key $k $indent $ptr_suffix $style]
@@ -506,8 +506,8 @@ namespace eval ::log {
             "list" {
                 set result ""
                 foreach item $data {
-                    set sub_type [sys get_type $item]
-                    if {$show_ptr} { set ptr_suffix [sys get_ptr_suffix $item] }
+                    set sub_type [sys get-type $item]
+                    if {$show_ptr} { set ptr_suffix [sys get-ptr-suffix $item] }
 
                     if {$sub_type eq "dict" || $sub_type eq "list" || $sub_type eq "object"} {
                         lassign [list "" ""] mark_left mark_right

@@ -127,7 +127,7 @@ namespace eval ::errors {
     # @param[in] main 主码
     # @return list 该主码下所有合法副码
     # @throws error 主码不在 CODES 中
-    proc sub_codes {main} {
+    proc sub-codes {main} {
         variable CODES
         if {![dict exists $CODES $main]} {
             set main_codes_str [join [dict keys $CODES] {, }]

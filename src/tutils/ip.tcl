@@ -32,7 +32,7 @@ namespace eval ::ip {
         # ----------------------------------------------------------------
         # 通道一：2026 现代系统黄金通道 —— 优先尝试原生 -json（含 IPv6 与 MAC）
         # ----------------------------------------------------------------
-        if {![catch {sys try_exec ip -json addr} json_raw]} {
+        if {![catch {sys try-exec ip -json addr} json_raw]} {
             if {![catch {package require json}]} {
                 set raw_list [::json::json2dict $json_raw]
                 foreach iface_data $raw_list {
@@ -70,7 +70,7 @@ namespace eval ::ip {
         # ----------------------------------------------------------------
         # 通道二：古董遗留系统保底通道 —— 硬核文本正则雷达多维生切
         # ----------------------------------------------------------------
-        if {[catch {sys try_exec ip addr} raw_data]} {
+        if {[catch {sys try-exec ip addr} raw_data]} {
             return [_get_mock_addresses]
         }
 

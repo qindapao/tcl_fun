@@ -1,4 +1,4 @@
-# pure_tcl
+# tcl_fun
 
 tcl语法windows和linux平台构建
 

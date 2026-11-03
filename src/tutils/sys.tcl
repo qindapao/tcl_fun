@@ -14,7 +14,7 @@ namespace eval ::sys {
     #          采用不定长参数直通设计，调用方无需在外部手动包裹 list 或大括号。
     #          由于底层直接通过 execve 系统调用解包，天然免疫任何 Shell 脚本注入攻击。
     # 
-    # @param[in] args 不定长命令及参数。例如：sys exec_m grep "FATAL" "app.log"
+    # @param[in] args 不定长命令及参数。例如：sys exec-m grep "FATAL" "app.log"
     # 
     # @return dict 返回包含两个核心键的结构化字典：
     #              - output: 完整的命令输出内容（包含 stdout 和 stderr）
@@ -23,17 +23,17 @@ namespace eval ::sys {
     # @throws error 当突发内核级故障（如命令不存在 `SYS_SYSTEM_PANIC`）时，引爆 Tcl 原生异常向上击穿。
     # 
     # @example
-    #    set res [::sys::exec_m grep "FATAL" "/var/log/nginx.log"]
+    #    set res [::sys::exec-m grep "FATAL" "/var/log/nginx.log"]
     #    if {[dict get $res code] != 0} {
     #        puts "日志中未找到关键字，控制台回显: [dict get $res output]"
     #    }
-    proc exec_m {args} { return [_exec_core 1 $args] }
+    proc exec-m {args} { return [_exec_core 1 $args] }
 
     # @brief 纯净分流外部命令执行器（Facade 面门函数）
     # @details 强制剥离并重定向标准错误（stderr），使其不污染返回的标准输出内容。
     #          采用不定长参数直通设计，调用方无需在外部手动包裹 list 或大括号。
     # 
-    # @param[in] args 不定长命令及参数。例如：sys exec_s ls -la "my folder"
+    # @param[in] args 不定长命令及参数。例如：sys exec-s ls -la "my folder"
     # 
     # @return dict 返回包含两个核心键的结构化字典：
     #              - output: 纯净的标准输出内容（不包含任何 stderr 报错信息）
@@ -42,11 +42,11 @@ namespace eval ::sys {
     # @throws error 当突发内核级故障（如命令不存在 `SYS_SYSTEM_PANIC`）时，引爆 Tcl 原生异常向上击穿。
     # 
     # @example
-    #    set res [::sys::exec_s docker ps -q]
+    #    set res [::sys::exec-s docker ps -q]
     #    if {[dict get $res code] == 0} {
     #        puts "当前运行的容器ID列表: [dict get $res output]"
     #    }
-    proc exec_s {args} { return [_exec_core 0 $args] }
+    proc exec-s {args} { return [_exec_core 0 $args] }
 
     # @brief 【高阶强类型执行器】业务级安全断言执行引擎（Facade 面门函数）
     # @details 专为精密数据清洗、见错就死的自动化流水线步骤打造。
@@ -55,7 +55,7 @@ namespace eval ::sys {
     #          得益于底层私有引擎 `_exec_core` 的大一统设计，本函数天然对齐 Tcl 9 字符集死锁机制，
     #          输入命令携带中文字符串参数时绝对不发生跨平台多字节 Panic 崩溃。
     # 
-    # @param[in] args 不定长外部命令及参数。例如：sys try_exec curl -s -X GET "https://github.com"
+    # @param[in] args 不定长外部命令及参数。例如：sys try-exec curl -s -X GET "https://github.com"
     # 
     # @return string 纯净的标准输出内容（末尾自动剥离换行符，中间多行换行完美保留）。
     # 
@@ -66,7 +66,7 @@ namespace eval ::sys {
     # @example
     #    # 生产环境标准强类型精准分流捕获与工业级测试回归范例：
     #    try {
-    #        set raw_json [::sys::try_exec ip -json addr]
+    #        set raw_json [::sys::try-exec ip -json addr]
     #        puts "数据清洗成功: $raw_json"
     #    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
     #        puts "【致命故障】本地环境完蛋或内核管道死锁! 详情: $err_msg"
@@ -75,7 +75,7 @@ namespace eval ::sys {
     #        puts "【业务失败】命令执行非0崩溃! 退出码: $exit_code, 错误回显: $err_msg"
     #        puts "【堆栈审计】完整的 Tcl 解释器注入调用链行号追踪:\n[dict get $opts -errorinfo]"
     #    }
-    proc try_exec {args} {
+    proc try-exec {args} {
         set res [_exec_core 0 $args]
         set code [dict get $res code]
         set out  [dict get $res output]
@@ -186,7 +186,7 @@ namespace eval ::sys {
     # @example
     #    # 工业级标准远程巡检并提取磁盘占用率精细化控制范例：
     #    try {
-    #        set res [::sys::exec_r "10.0.0.1" "admin" "pass123" 30 df -h "/" ]
+    #        set res [::sys::exec-r "10.0.0.1" "admin" "pass123" 30 df -h "/" ]
     #        
     #        if {[dict get $res code] == 0} {
     #            puts "远程巡检成功，控制台回显:\n[dict get $res output]"
@@ -196,10 +196,10 @@ namespace eval ::sys {
     #    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
     #        puts "【致命故障】调用中断！检查发现未传递任何远程执行指令！详情: $err_msg"
     #    }
-    proc exec_r {host user pwd timeout args} {
+    proc exec-r {host user pwd timeout args} {
         # 【全盘统一设计】：前置强断言，如果 args 不定长参数为空，直接抛出标准系统致命异常
         if {[llength $args] == 0} {
-            errors panic REMOTE_ARGS_EMPTY "\[exec_r\] error: no remote command provided"
+            errors panic REMOTE_ARGS_EMPTY "\[exec-r\] error: no remote command provided"
         }
 
         # 组装调用已部署在系统 PATH 中的 cmd2r.exp 脚本的本地参数
@@ -239,7 +239,7 @@ namespace eval ::sys {
     # @example
     #    # 工业级标准下发配置文件精细化控制范例：
     #    try {
-    #        set res [::sys::cp_l2r "10.0.0.1" "../conf/nginx.conf" "/etc/nginx/nginx.conf" "root" "pass123"]
+    #        set res [::sys::cp-l2r "10.0.0.1" "../conf/nginx.conf" "/etc/nginx/nginx.conf" "root" "pass123"]
     #        
     #        if {[dict get $res code] == 0} {
     #            puts "推送 Nginx 配置文件成功！"
@@ -249,14 +249,14 @@ namespace eval ::sys {
     #    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
     #        puts "【致命故障】打包发布中断！检查发现本地根本找不到待分发的 conf/nginx.conf 文件！详情: $err_msg"
     #    }
-    proc cp_l2r {host src_path dest_path user pwd {timeout 60}} {
+    proc cp-l2r {host src_path dest_path user pwd {timeout 60}} {
         # 【全盘统一设计】：强制将本地路径归一化为绝对路径，防呆设计
         set real_src [file normalize $src_path]
 
         # 如果本地源文件不存在，视为内核级故障，就地引发系统级崩溃，不再向下调用外部脚本
         if {![file exists $real_src]} {
             errors panic LOCAL_FILE_NOT_FOUND \
-                "\[cp_l2r\] critical error: local source path does not exist -> $real_src"
+                "\[cp-l2r\] critical error: local source path does not exist -> $real_src"
         }
 
         # 组装调用已部署在系统 PATH 中的 cp_l2r.exp 脚本的本地参数
@@ -293,7 +293,7 @@ namespace eval ::sys {
     # @example
     #    # 工业级标准拉取远程日志精细化控制范例：
     #    try {
-    #        set res [::sys::cp_r2l "192.168.1.100" "/var/log/app.log" "/data/backup/app.log" "admin" "secret"]
+    #        set res [::sys::cp-r2l "192.168.1.100" "/var/log/app.log" "/data/backup/app.log" "admin" "secret"]
     #        
     #        if {[dict get $res code] == 0} {
     #            puts "下载日志成功！"
@@ -303,13 +303,13 @@ namespace eval ::sys {
     #    } trap {SYS_SYSTEM_PANIC} {err_msg opts} {
     #        puts "【致命故障】本地环境异常！本地可能连 /data/backup 目录都没建！详情: $err_msg"
     #    }
-    proc cp_r2l {host src_path dest_path user pwd {timeout 60}} {
+    proc cp-r2l {host src_path dest_path user pwd {timeout 60}} {
         # 安全防呆：提取本地落地路径的父目录
         set local_parent [file dirname $dest_path]
 
         # 【全盘统一设计】：如果本地父目录不存在，视为内核级故障，直接抛出标准异常拦截！
         errors panic LOCAL_DIR_NOT_FOUND \
-            "\[cp_r2l\] critical error: local destination directory does not exist -> $local_parent"
+            "\[cp-r2l\] critical error: local destination directory does not exist -> $local_parent"
 
         # 组装调用已部署在系统 PATH 中的 cp_r2l.exp 脚本的本地参数
         set local_cmd [list cp_r2l.exp $host $src_path $dest_path $timeout $user $pwd]
@@ -318,7 +318,7 @@ namespace eval ::sys {
         return [_exec_core 0 $local_cmd]
     }
 
-    # @brief System Date and Time Formatter (date_prt)
+    # @brief System Date and Time Formatter (date-prt)
     # @details 纯 Tcl 实现的高性能时间戳生成器，自适应支持秒级与毫秒级高精度输出。
     #          默认输出格式为 "YYYY-MM-DD HH:MM:SS"。
     # 
@@ -328,7 +328,7 @@ namespace eval ::sys {
     #                       - 文件 "%Y%m%d_%H%M%S_%Milli"     -> 20260520_091530_425
     # 
     # @return string 返回格式化后的本地时间字符串。
-    proc date_prt {{format_str "%Y-%m-%d %H:%M:%S"}} {
+    proc date-prt {{format_str "%Y-%m-%d %H:%M:%S"}} {
         set us [clock microseconds]
 
         set now [expr {$us / 1000000}]
@@ -342,7 +342,7 @@ namespace eval ::sys {
         return [clock format $now -format $format_str]
     }
 
-    # @brief 高性能、0 误伤、且不污染变量现场的 Tcl 9 数据类型内窥器 (get_type)
+    # @brief 高性能、0 误伤、且不污染变量现场的 Tcl 9 数据类型内窥器 (get-type)
     # @details 本函数是 tutils 工具箱的核心基石。专为 Tcl 9 内核的值共享与优化机制设计。
     #          它利用底层未公开指令深入 C 语言运行时，在尽量避免触发写时复制 (Copy-On-Write)
     #          和内部人格突变 (Shimmering) 的前提下，精准识别对象的真实物理形态。
@@ -376,7 +376,7 @@ namespace eval ::sys {
     #                  - "string"     : 非空原子标量（纯文字、数字、布林值等）
     #                  - "object"     : TclOO 对象句柄（内部表示为 cmdName 时）
     #                  - "bytearray"  : 字节数组（二进制数据）
-    proc get_type {data} {
+    proc get-type {data} {
         set rep [string tolower [tcl::unsupported::representation $data]]
 
         # 注释只能放在某个模式的执行体（body）内部，不能和模式混在一起
@@ -421,7 +421,7 @@ namespace eval ::sys {
     # @param show_ptr  [Bool] 调试开关。预设为 1 (开启) 返回格式化指标；设为 0 (关闭) 则直接返回空串。
     # 
     # @return [String] 返回格式化后的指标后缀（形如 " <0x100874b10>"）。若关闭开关或提取失败，返回空字符串 ""。
-    proc get_ptr_suffix {data} {
+    proc get-ptr-suffix {data} {
         set rep [tcl::unsupported::representation $data]
 
         # 核心抓取机制：利用专门适应 Tcl 9 的 64 位变长十六进制正则表达式，捕获内存地址

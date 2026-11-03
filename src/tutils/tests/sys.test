@@ -10,9 +10,9 @@ set current_dir [file dirname [file normalize [info script]]]
 lappend ::auto_path [file dirname $current_dir]
 package require tutils 1.0
 
-test exec_s-1.1 {测试常规命令输出与退出码} -body {
+test exec-s-1.1 {测试常规命令输出与退出码} -body {
     # 模拟执行 echo 命令
-    set res [sys exec_s echo "hell o-tcl9"]
+    set res [sys exec-s echo "hell o-tcl9"]
     
     # 获取字典里的值用于断言
     set output [dict get $res output]
@@ -22,12 +22,12 @@ test exec_s-1.1 {测试常规命令输出与退出码} -body {
     list $output $code
 } -result {{hell o-tcl9} 0}
 
-test exec_s-1.2 {测试命令执行成功但逻辑未匹配（退出码为1）} -setup {
+test exec-s-1.2 {测试命令执行成功但逻辑未匹配（退出码为1）} -setup {
     # 创建临时测试文件
     set temp_file [makeFile "line 1\nline 2" "test_grep.log"]
 } -body {
     # 故意搜索一个绝对不存在的关键字 "NOTHING"
-    set res [sys exec_s grep "NOTHING" $temp_file]
+    set res [sys exec-s grep "NOTHING" $temp_file]
     
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -38,9 +38,9 @@ test exec_s-1.2 {测试命令执行成功但逻辑未匹配（退出码为1）} 
     removeFile "test_grep.log"
 } -result {{} 1}
 
-test exec_s-1.3 {测试执行非法命令时触发 Tcl 运行时报错} -body {
+test exec-s-1.3 {测试执行非法命令时触发 Tcl 运行时报错} -body {
     # 故意调用一个全宇宙都不存在的瞎编命令
-    if {[catch {sys exec_s nonexistent_command_abc} err_msg]} {
+    if {[catch {sys exec-s nonexistent_command_abc} err_msg]} {
         # 如果成功拦截到错误，我们看报错文本是不是符合预期
         string match "*no such file or directory*" $err_msg
     } else {
@@ -48,9 +48,9 @@ test exec_s-1.3 {测试执行非法命令时触发 Tcl 运行时报错} -body {
     }
 } -result {1}
 
-test exec_s-1.4 {测试命令参数包含空格和特殊符号} -body {
+test exec-s-1.4 {测试命令参数包含空格和特殊符号} -body {
     # 模拟执行 echo 命令，参数里有空格和特殊符号
-    set res [sys exec_s echo "hello world @#$%^&*()"]
+    set res [sys exec-s echo "hello world @#$%^&*()"]
     
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -58,9 +58,9 @@ test exec_s-1.4 {测试命令参数包含空格和特殊符号} -body {
     list $output $code
 } -result {{hello world @#$%^&*()} 0}
 
-test exec_s-1.5 {测试命令参数包含空格和特殊符号（非echo）} -body {
+test exec-s-1.5 {测试命令参数包含空格和特殊符号（非echo）} -body {
     # 使用 printf 打印参数，避免 echo 的实现差异
-    set res [sys exec_s printf "%s" "hello world @#$%^&*()"]
+    set res [sys exec-s printf "%s" "hello world @#$%^&*()"]
     
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -68,7 +68,7 @@ test exec_s-1.5 {测试命令参数包含空格和特殊符号（非echo）} -bo
     list $output $code
 } -result {{hello world @#$%^&*()} 0}
 
-test exec_s-1.6 {测试文件名包含空格和特殊符号} -setup {
+test exec-s-1.6 {测试文件名包含空格和特殊符号} -setup {
     # 创建一个临时文件，名字里有空格和符号
     set special_file "test file @#$%.log"
     set fh [open $special_file w]
@@ -76,7 +76,7 @@ test exec_s-1.6 {测试文件名包含空格和特殊符号} -setup {
     close $fh
 } -body {
     # 用 cat 打印文件内容
-    set res [sys exec_s cat $special_file]
+    set res [sys exec-s cat $special_file]
     
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -87,12 +87,12 @@ test exec_s-1.6 {测试文件名包含空格和特殊符号} -setup {
 } -result {{special content} 0}
 
 
-test exec_s-1.7 {测试命令输出很大时能正常处理} -setup {
+test exec-s-1.7 {测试命令输出很大时能正常处理} -setup {
     # 创建一个临时大文件，内容重复很多行
     set big_file [makeFile [string repeat "line 1 line 1 line 1\n" 5000000] "big_output.log"]
 } -body {
     # 用 cat 输出大文件
-    set res [sys exec_s cat $big_file]
+    set res [sys exec-s cat $big_file]
     
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -103,9 +103,9 @@ test exec_s-1.7 {测试命令输出很大时能正常处理} -setup {
     removeFile "big_output.log"
 } -result {5000000 0}
 
-test exec_s-1.8 {测试不合流标准错误时的行为} -body {
+test exec-s-1.8 {测试不合流标准错误时的行为} -body {
     # 故意执行一个会报错的命令，比如 ls 一个不存在的目录
-    set res [sys exec_s ls /not_exist_dir]
+    set res [sys exec-s ls /not_exist_dir]
 
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -114,9 +114,9 @@ test exec_s-1.8 {测试不合流标准错误时的行为} -body {
     list $output $code
 } -result {{} 2}
 
-test exec_m-1.8.1 {测试合流标准错误时的行为} -body {
-    # 故意执行一个会报错的命令，并使用合流执行器 exec_m
-    set res [sys exec_m ls /not_exist_dir]
+test exec-m-1.8.1 {测试合流标准错误时的行为} -body {
+    # 故意执行一个会报错的命令，并使用合流执行器 exec-m
+    set res [sys exec-m ls /not_exist_dir]
 
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -129,9 +129,9 @@ test exec_m-1.8.1 {测试合流标准错误时的行为} -body {
     list $has_err_msg $code
 } -result {1 2}
 
-test exec_s-1.9 {测试命令退出码为9的情况} -body {
+test exec-s-1.9 {测试命令退出码为9的情况} -body {
     # 用 shell 模拟一个直接退出的命令
-    set res [sys exec_s sh -c "exit 9"]
+    set res [sys exec-s sh -c "exit 9"]
 
     set output [dict get $res output]
     set code   [dict get $res code]
@@ -140,8 +140,8 @@ test exec_s-1.9 {测试命令退出码为9的情况} -body {
     list $output $code
 } -result {{} 9}
 
-test date_prt-1.1 {测试 date_prt 默认格式输出} -body {
-    set current_time [sys date_prt]
+test date-prt-1.1 {测试 date-prt 默认格式输出} -body {
+    set current_time [sys date-prt]
     
     # 验证是否符合默认的年-月-日 时:分:秒 正则格式
     # 例如：2026-05-19 14:30:15
@@ -150,9 +150,9 @@ test date_prt-1.1 {测试 date_prt 默认格式输出} -body {
     return $is_match
 } -result {1}
 
-test date_prt-1.2 {测试 date_prt 自定义格式输出} -body {
+test date-prt-1.2 {测试 date-prt 自定义格式输出} -body {
     # 传入自定义格式，常用于日志文件名：20260519_143015
-    set custom_time [sys date_prt "%Y%m%d_%H%M%S"]
+    set custom_time [sys date-prt "%Y%m%d_%H%M%S"]
     
     # 验证是否符合 8位数字 + 下划线 + 6位数字 的正则格式
     set is_match [regexp {^\d{8}_\d{6}$} $custom_time]
@@ -160,9 +160,9 @@ test date_prt-1.2 {测试 date_prt 自定义格式输出} -body {
     return $is_match
 } -result {1}
 
-test date_prt-1.3 {测试 date_prt 毫秒级标准格式输出} -body {
+test date-prt-1.3 {测试 date-prt 毫秒级标准格式输出} -body {
     # 传入带自定义 %Milli 占位符的格式
-    set ms_time [sys date_prt "%Y-%m-%d %H:%M:%S.%Milli"]
+    set ms_time [sys date-prt "%Y-%m-%d %H:%M:%S.%Milli"]
     
     # 验证是否符合 年-月-日 时:分:秒.3位毫秒数字 的正则格式
     # 例如：2026-05-20 09:05:30.425
@@ -171,9 +171,9 @@ test date_prt-1.3 {测试 date_prt 毫秒级标准格式输出} -body {
     return $is_match
 } -result {1}
 
-test date_prt-1.4 {测试 date_prt 毫秒级文件名安全格式输出} -body {
+test date-prt-1.4 {测试 date-prt 毫秒级文件名安全格式输出} -body {
     # 传入适合做备份或临时大文件的全数字下划线毫秒格式
-    set custom_ms_time [sys date_prt "%Y%m%d_%H%M%S_%Milli"]
+    set custom_ms_time [sys date-prt "%Y%m%d_%H%M%S_%Milli"]
     
     # 验证是否符合 8位数字 + 下划线 + 6位数字 + 下划线 + 3位毫秒 的正则格式
     # 例如：20260520_090530_425
@@ -182,15 +182,15 @@ test date_prt-1.4 {测试 date_prt 毫秒级文件名安全格式输出} -body {
     return $is_match
 } -result {1}
 
-test get_type-1.1 {测试变量内部人格变身：刚生成的文本推断为字典 -> 经历列表操作后原地转正为列表} -body {
+test get-type-1.1 {测试变量内部人格变身：刚生成的文本推断为字典 -> 经历列表操作后原地转正为列表} -body {
     # 步骤 1：构造一个纯文本字符串，它的长相刚好符合偶数个键值对的特征
     set dynamic_data "key1 value1 key2 value2"
     
-    set res_first [::sys::get_type $dynamic_data]
+    set res_first [::sys::get-type $dynamic_data]
     
     set dummy_len [llength $dynamic_data]
     
-    set res_second [::sys::get_type $dynamic_data]
+    set res_second [::sys::get-type $dynamic_data]
     
     # 组合两次的战利品返回
     list $res_first $res_second
@@ -198,97 +198,97 @@ test get_type-1.1 {测试变量内部人格变身：刚生成的文本推断为�
 
 # 打印字典中某个节点的地址数据
 
-test get_type-1.2 {测试变量内部人格变身：显式生成的列表推断为列表 -> 经历字典操作后原地裂变为字典} -body {
+test get-type-1.2 {测试变量内部人格变身：显式生成的列表推断为列表 -> 经历字典操作后原地裂变为字典} -body {
     # 步骤 1：利用官方正统 list 命令构造一个变量。
     # 此时它在 Tcl 9 底层物理内存中，100% 拥有纯正的、带 C 语言数组指针的 list 内部表示！
     set dynamic_list [list "key1" "value1" "key2" "value2"]
     
-    # 首次调用：get_type 顺着 C 指针精准抓取，判定其为 "list"
-    set res_first [::sys::get_type $dynamic_list]
+    # 首次调用：get-type 顺着 C 指针精准抓取，判定其为 "list"
+    set res_first [::sys::get-type $dynamic_list]
     
     # 步骤 2：核心裂变点！我们对这个变量强行进行一次【字典操作】（例如查一下它所有的 keys）
     # 这会无情地通知 Tcl 9 内核：“把原先的 list 结构体砸碎释放，重新在原地编译出一棵 C 语言哈希树（dict）！”
     set dummy_keys [dict keys $dynamic_list]
     
-    # 第二次调用：此时变量底层已经彻底换成了 dict 灵魂，get_type 必须精准抓出 "dict"
-    set res_second [::sys::get_type $dynamic_list]
+    # 第二次调用：此时变量底层已经彻底换成了 dict 灵魂，get-type 必须精准抓出 "dict"
+    set res_second [::sys::get-type $dynamic_list]
     
     # 组合战利品返回
     list $res_first $res_second
 } -result {list dict}
 
-test try_exec-1.1 {测试正常直通：获取干净的标准输出} -body {
+test try-exec-1.1 {测试正常直通：获取干净的标准输出} -body {
     # 采用 echo 输出一行干净的文本
-    set res [sys try_exec echo "Hello Tcl 9"]
+    set res [sys try-exec echo "Hello Tcl 9"]
     
     # 期望直接拿到脱壳后的字符串
     set res
 } -result {Hello Tcl 9}
 
-test try_exec-1.2 {业务失败：验证结构化异常与退出码} -body {
-    sys try_exec ls /nonexistent_directory_abc
+test try-exec-1.2 {业务失败：验证结构化异常与退出码} -body {
+    sys try-exec ls /nonexistent_directory_abc
 } -returnCodes error \
   -errorCode {SYS_EXEC_ERROR *} \
   -match glob \
   -result {*failed with exit code*}
 
-test try_exec-1.3 {测试内核级完蛋：验证工具不存在时的系统级异常击穿} -body {
+test try-exec-1.3 {测试内核级完蛋：验证工具不存在时的系统级异常击穿} -body {
     # 故意调用一个绝对不可能存在的命令
-    sys try_exec nonexistent_command_xyz_123
+    sys try-exec nonexistent_command_xyz_123
 } -returnCodes error \
   -match regexp \
   -result {couldn't execute "nonexistent_command_xyz_123":.*}
 
-test try_exec-1.4 {业务失败：确定的退出码作为 extra 数据} -body {
-    sys try_exec sh -c "exit 42"
+test try-exec-1.4 {业务失败：确定的退出码作为 extra 数据} -body {
+    sys try-exec sh -c "exit 42"
 } -returnCodes error \
   -errorCode {SYS_EXEC_ERROR 42} \
   -match glob \
   -result {*exit code 42*}
 
-test try_exec-1.5 {成功：多行输出保留中间换行，剥离末尾换行} -body {
-    sys try_exec sh -c "printf 'line1\nline2\nline3\n'"
+test try-exec-1.5 {成功：多行输出保留中间换行，剥离末尾换行} -body {
+    sys try-exec sh -c "printf 'line1\nline2\nline3\n'"
 } -result "line1\nline2\nline3"
 
-test try_exec-1.6 {成功：命令无输出返回空字符串} -body {
-    sys try_exec true
+test try-exec-1.6 {成功：命令无输出返回空字符串} -body {
+    sys try-exec true
 } -result {}
 
-test try_exec-1.7 {成功：中文输出正确返回} -body {
-    sys try_exec echo "中文测试"
+test try-exec-1.7 {成功：中文输出正确返回} -body {
+    sys try-exec echo "中文测试"
 } -result {中文测试}
 
-test try_exec-1.8 {成功：带空格的参数正确传递} -body {
-    sys try_exec echo "hello world"
+test try-exec-1.8 {成功：带空格的参数正确传递} -body {
+    sys try-exec echo "hello world"
 } -result {hello world}
 
-test try_exec-1.9 {系统级：空参数触发 ARGS_EMPTY panic} -body {
-    sys try_exec
+test try-exec-1.9 {系统级：空参数触发 ARGS_EMPTY panic} -body {
+    sys try-exec
 } -returnCodes error \
   -errorCode {SYS_SYSTEM_PANIC ARGS_EMPTY} \
   -match glob \
   -result {*no command or arguments provided*}
 
-test try_exec-1.10 {业务失败：-errorinfo 自动生成，包含调用栈} -body {
-    catch {sys try_exec sh -c "exit 1"} err opts
+test try-exec-1.10 {业务失败：-errorinfo 自动生成，包含调用栈} -body {
+    catch {sys try-exec sh -c "exit 1"} err opts
     expr {[dict exists $opts -errorinfo] && [string length [dict get $opts -errorinfo]] > 0}
 } -result 1
 
-test try_exec-1.11 {业务失败：stdout 内容嵌入消息} -body {
+test try-exec-1.11 {业务失败：stdout 内容嵌入消息} -body {
     # 用 sh 同时写 stdout 和 exit 1
-    sys try_exec sh -c "echo 'some stdout'; exit 1"
+    sys try-exec sh -c "echo 'some stdout'; exit 1"
 } -returnCodes error \
   -errorCode {SYS_EXEC_ERROR 1} \
   -match glob \
   -result {*some stdout*}
 
-test try_exec-1.12 {成功：输出含 Tcl 特殊字符不被二次解析} -body {
-    sys try_exec echo {[hello] $world {braces}}
+test try-exec-1.12 {成功：输出含 Tcl 特殊字符不被二次解析} -body {
+    sys try-exec echo {[hello] $world {braces}}
 } -result {[hello] $world {braces}}
 
-test try_exec-1.13 {业务失败：-errorinfo 包含 try_exec 栈帧} -body {
-    catch {sys try_exec sh -c "exit 1"} err opts
-    string match {*try_exec*} [dict get $opts -errorinfo]
+test try-exec-1.13 {业务失败：-errorinfo 包含 try-exec 栈帧} -body {
+    catch {sys try-exec sh -c "exit 1"} err opts
+    string match {*try-exec*} [dict get $opts -errorinfo]
 } -result 1
 
 # ====================================================================
