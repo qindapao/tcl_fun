@@ -127,23 +127,31 @@ namespace eval ::log {
             }
         }
 
-        # 写入堆栈到控制台和文件
-        set fp [dict get $db file_handle]
-        if {$trace_block ne ""} {
-            puts stdout "\033\[90m$trace_block\033\[0m"
-            if {$fp ne ""} {
-                puts $fp $trace_block
-                flush $fp
-            }
-        }
-
         # 组装带业务行号的精美正文(时间精确到毫秒)
         set format_msg "\[$now_time\]\[$level\]$label_suffix--> $msg"
-        puts stdout "\033\[${color}m$format_msg\033\[0m"
+        set fp [dict get $db file_handle]
 
-        if {$fp ne ""} {
-            puts $fp $format_msg
-            flush $fp
+        # 写入堆栈到控制台和文件（堆栈+正文一次 puts，用上下边界包裹）
+        if {$trace_block ne ""} {
+            set line_top    "\033\[90m------------>\033\[0m"
+            set line_bottom "\033\[90m------------<\033\[0m"
+            set line_trace  "\033\[90m$trace_block\033\[0m"
+            set line_msg    "\033\[${color}m$format_msg\033\[0m"
+
+            puts stdout [join [list $line_top $line_trace $line_msg $line_bottom] "\n"]
+            if {$fp ne ""} {
+                set file_top    "------------>"
+                set file_bottom "------------<"
+                set file_block  [join [list $file_top $trace_block $format_msg $file_bottom] "\n"]
+                puts $fp $file_block
+                flush $fp
+            }
+        } else {
+            puts stdout "\033\[${color}m$format_msg\033\[0m"
+            if {$fp ne ""} {
+                puts $fp $format_msg
+                flush $fp
+            }
         }
     }
 
